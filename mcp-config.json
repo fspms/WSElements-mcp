@@ -1,0 +1,74 @@
+{
+  "mcpServers": {
+    "withsecure-elements-mcp": {
+      "command": "uvx",
+      "args": [
+        "--env-file",
+        ".env",
+        "withsecure-elements-mcp"
+      ],
+      "env": {
+        "WITHSECURE_CLIENT_ID": "your_client_id",
+        "WITHSECURE_CLIENT_SECRET": "your_client_secret",
+        "WITHSECURE_BASE_URL": "https://api.connect.withsecure.com",
+        "WITHSECURE_ORGANIZATION_ID": "your_organization_id"
+      }
+    },
+    "withsecure-elements-mcp-sse": {
+      "command": "uvx",
+      "args": [
+        "--env-file",
+        ".env",
+        "withsecure-elements-mcp",
+        "--transport",
+        "sse",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "env": {
+        "WITHSECURE_CLIENT_ID": "your_client_id",
+        "WITHSECURE_CLIENT_SECRET": "your_client_secret",
+        "WITHSECURE_BASE_URL": "https://api.connect.withsecure.com",
+        "WITHSECURE_ORGANIZATION_ID": "your_organization_id"
+      }
+    },
+    "withsecure-elements-mcp-http": {
+      "command": "uvx",
+      "args": [
+        "--env-file",
+        ".env",
+        "withsecure-elements-mcp",
+        "--transport",
+        "streamable-http",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080"
+      ],
+      "env": {
+        "WITHSECURE_CLIENT_ID": "your_client_id",
+        "WITHSECURE_CLIENT_SECRET": "your_client_secret",
+        "WITHSECURE_BASE_URL": "https://api.connect.withsecure.com",
+        "WITHSECURE_ORGANIZATION_ID": "your_organization_id"
+      }
+    },
+    "withsecure-elements-mcp-modules": {
+      "command": "uvx",
+      "args": [
+        "--env-file",
+        ".env",
+        "withsecure-elements-mcp",
+        "--modules",
+        "incidents,events"
+      ],
+      "env": {
+        "WITHSECURE_CLIENT_ID": "your_client_id",
+        "WITHSECURE_CLIENT_SECRET": "your_client_secret",
+        "WITHSECURE_BASE_URL": "https://api.connect.withsecure.com",
+        "WITHSECURE_ORGANIZATION_ID": "your_organization_id"
+      }
+    }
+  }
+}

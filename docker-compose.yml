@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  withsecure-elements-mcp:
+    build: .
+    container_name: withsecure-elements-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - WITHSECURE_CLIENT_ID=${WITHSECURE_CLIENT_ID}
+      - WITHSECURE_CLIENT_SECRET=${WITHSECURE_CLIENT_SECRET}
+      - WITHSECURE_BASE_URL=${WITHSECURE_BASE_URL:-https://api.connect.withsecure.com}
+      - WITHSECURE_ORGANIZATION_ID=${WITHSECURE_ORGANIZATION_ID}
+      - MCP_DEBUG=${MCP_DEBUG:-false}
+      - MCP_LOG_LEVEL=${MCP_LOG_LEVEL:-INFO}
+      - WITHSECURE_MCP_MODULES=${WITHSECURE_MCP_MODULES:-incidents,events,organizations,devices}
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
