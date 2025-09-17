@@ -1,0 +1,65 @@
+name-template: 'v$RESOLVED_VERSION 🌟'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'enhancement'
+      - 'type: feature'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'type: bug'
+      - 'bug'
+  - title: '📚 Documentation'
+    labels:
+      - 'type: documentation'
+      - 'documentation'
+  - title: '🔧 Maintenance'
+    labels:
+      - 'type: refactoring'
+      - 'type: testing'
+      - 'chore'
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&' # You can add # and @ to disable mentions, too
+version-resolver:
+  major:
+    labels:
+      - 'major'
+  minor:
+    labels:
+      - 'minor'
+      - 'enhancement'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bug'
+  default: patch
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ## Docker Images
+
+  The Docker images are available on GitHub Container Registry:
+
+  ```bash
+  docker pull ghcr.io/$OWNER/$REPOSITORY:latest
+  docker pull ghcr.io/$OWNER/$REPOSITORY:v$RESOLVED_VERSION
+  ```
+
+  ## Installation
+
+  ```bash
+  # Using uv
+  uv tool install withsecure-elements-mcp
+
+  # Using pip
+  pip install withsecure-elements-mcp
+  ```
+
+  ## Documentation
+
+  - [Installation Guide](https://github.com/$OWNER/$REPOSITORY#installation)
+  - [Usage Examples](https://github.com/$OWNER/$REPOSITORY#usage)
+  - [API Reference](https://github.com/$OWNER/$REPOSITORY#api-reference)

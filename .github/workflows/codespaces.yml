@@ -1,0 +1,14 @@
+name: Codespaces
+
+on:
+  create:
+    types: [codespace]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Codespace
+        run: |
+          echo "Setting up WithSecure Elements MCP development environment..."
+          echo "Make sure to configure your .env file with WithSecure Elements credentials"
