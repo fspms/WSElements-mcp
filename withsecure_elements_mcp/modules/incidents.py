@@ -28,6 +28,22 @@ class IncidentFilters(BaseModel):
     anchor: Optional[str] = None
 
 
+class IncidentComment(BaseModel):
+    """Model for incident comment."""
+    
+    targets: List[str]
+    comment: str
+
+
+class DetectionFilters(BaseModel):
+    """Filters for detection search."""
+    
+    organization_id: Optional[str] = None
+    incident_id: str
+    anchor: Optional[str] = None
+    limit: Optional[int] = 100
+
+
 class IncidentsModule(BaseModule):
     """Module for incidents (Broad Context Detections) management."""
     
@@ -43,12 +59,26 @@ class IncidentsModule(BaseModule):
         """Register resources for incidents."""
         
         # Add resources to the list for HTTP transport
-        self._resources.append({
-            "uri": "withsecure://incidents",
-            "name": "Incidents",
-            "description": "WithSecure Elements incidents list",
-            "mimeType": "application/json"
-        })
+        self._resources.extend([
+            {
+                "uri": "withsecure://incidents",
+                "name": "Incidents",
+                "description": "WithSecure Elements incidents list",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": "withsecure://incidents/comments",
+                "name": "Incident Comments",
+                "description": "WithSecure Elements incident comments",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": "withsecure://incidents/detections",
+                "name": "Incident Detections",
+                "description": "WithSecure Elements incident detections",
+                "mimeType": "application/json"
+            }
+        ])
         
         @self.server.list_resources()
         async def list_incidents() -> List[Resource]:
@@ -177,6 +207,54 @@ class IncidentsModule(BaseModule):
                         "incident_id": {
                             "type": "string",
                             "description": "Incident ID"
+                        }
+                    },
+                    "required": ["incident_id"]
+                }
+            },
+            {
+                "name": "add_incident_comment",
+                "description": "Add comment to incidents",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "targets": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "List of incident IDs to add comment to"
+                        },
+                        "comment": {
+                            "type": "string",
+                            "description": "Comment text to add"
+                        }
+                    },
+                    "required": ["targets", "comment"]
+                }
+            },
+            {
+                "name": "list_incident_detections",
+                "description": "List detections for a specific incident",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Incident ID to get detections for"
+                        },
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of detections to return",
+                            "default": 100
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor for next page"
                         }
                     },
                     "required": ["incident_id"]
@@ -458,6 +536,65 @@ class IncidentsModule(BaseModule):
         
         return json.dumps({"success": True, "message": f"Incident {incident_id} unarchived"})
     
+    async def _add_incident_comment(self, targets: List[str], comment: str) -> str:
+        """Add comment to incidents."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        headers["Content-Type"] = "application/json"
+        
+        data = {
+            "targets": targets,
+            "comment": comment
+        }
+        
+        response = await self.auth._client.post(
+            "/incidents/v1/comments",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code not in [200, 201]:
+            raise Exception(f"Error adding comment: {response.status_code} - {response.text}")
+        
+        return json.dumps({"success": True, "message": f"Comment added to {len(targets)} incident(s)"})
+    
+    async def _get_incident_detections(self, incident_id: str, organization_id: Optional[str] = None, 
+                                     limit: int = 100, anchor: Optional[str] = None) -> str:
+        """Retrieve detections for a specific incident."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        params = {
+            "incidentId": incident_id,
+            "limit": limit
+        }
+        
+        if organization_id:
+            params["organizationId"] = organization_id
+        elif self.config.organization_id:
+            params["organizationId"] = self.config.organization_id
+        
+        if anchor:
+            params["anchor"] = anchor
+        
+        response = await self.auth._client.get(
+            "/incidents/v1/detections",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error retrieving detections: {response.status_code} - {response.text}")
+        
+        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+    
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
@@ -518,6 +655,34 @@ class IncidentsModule(BaseModule):
                         {
                             "type": "text",
                             "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "add_incident_comment":
+                targets = arguments["targets"]
+                comment = arguments["comment"]
+                result = await self._add_incident_comment(targets, comment)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "list_incident_detections":
+                incident_id = arguments["incident_id"]
+                organization_id = arguments.get("organization_id")
+                limit = arguments.get("limit", 100)
+                anchor = arguments.get("anchor")
+                detections = await self._get_incident_detections(incident_id, organization_id, limit, anchor)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": detections
                         }
                     ]
                 }

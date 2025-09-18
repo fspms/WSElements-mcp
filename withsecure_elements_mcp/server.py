@@ -12,7 +12,7 @@ from mcp.server.stdio import stdio_server
 
 from .config import load_config, WithSecureConfig, MCPConfig
 from .auth import WithSecureAuth
-from .modules import IncidentsModule, EventsModule, OrganizationsModule, DevicesModule
+from .modules import IncidentsModule, EventsModule, OrganizationsModule, DevicesModule, ResponseActionsModule
 
 
 class WithSecureElementsMCPServer:
@@ -64,7 +64,8 @@ class WithSecureElementsMCPServer:
             "incidents": IncidentsModule,
             "events": EventsModule,
             "organizations": OrganizationsModule,
-            "devices": DevicesModule
+            "devices": DevicesModule,
+            "response_actions": ResponseActionsModule
         }
         
         for module_name in self.mcp_config.enabled_modules:
