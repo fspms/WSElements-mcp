@@ -12,6 +12,62 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 
 ## Installation
 
+### Using Docker (Recommended)
+
+The easiest way to run the WithSecure Elements MCP Server is using Docker:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/fspms/wselements-mcp:latest
+
+# Run with environment variables
+docker run --rm \
+  -e WITHSECURE_CLIENT_ID=your_client_id \
+  -e WITHSECURE_CLIENT_SECRET=your_client_secret \
+  -e WITHSECURE_BASE_URL=https://api.connect.withsecure.com \
+  -e WITHSECURE_ORGANIZATION_ID=your_organization_id \
+  -p 8000:8000 \
+  ghcr.io/fspms/wselements-mcp:latest \
+  --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+### Using Docker Compose
+
+Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+
+services:
+  withsecure-elements-mcp:
+    image: ghcr.io/fspms/wselements-mcp:latest
+    container_name: withsecure-elements-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - WITHSECURE_CLIENT_ID=your_client_id
+      - WITHSECURE_CLIENT_SECRET=your_client_secret
+      - WITHSECURE_BASE_URL=https://api.connect.withsecure.com
+      - WITHSECURE_ORGANIZATION_ID=your_organization_id
+      - MCP_DEBUG=false
+      - MCP_LOG_LEVEL=INFO
+      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+Then run:
+
+```bash
+docker-compose up -d
+```
+
 ### Install using uv
 
 ```bash
@@ -128,6 +184,60 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 ## Editor/Assistant Integration
 
 ### MCP Configuration
+
+#### Using Docker
+
+```json
+{
+  "mcpServers": {
+    "withsecure-elements-mcp": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-p",
+        "8000:8000",
+        "-e",
+        "WITHSECURE_CLIENT_ID=your_client_id",
+        "-e",
+        "WITHSECURE_CLIENT_SECRET=your_client_secret",
+        "-e",
+        "WITHSECURE_BASE_URL=https://api.connect.withsecure.com",
+        "-e",
+        "WITHSECURE_ORGANIZATION_ID=your_organization_id",
+        "-e",
+        "MCP_DEBUG=false",
+        "-e",
+        "MCP_LOG_LEVEL=INFO",
+        "-e",
+        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices",
+        "ghcr.io/fspms/wselements-mcp:latest",
+        "--transport",
+        "streamable-http",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ]
+    }
+  }
+}
+```
+
+#### Using HTTP Transport (when server is already running)
+
+```json
+{
+  "mcpServers": {
+    "withsecure-elements-mcp": {
+      "url": "http://localhost:8000",
+      "transport": "http"
+    }
+  }
+}
+```
+
+#### Using uvx (for local development)
 
 ```json
 {
