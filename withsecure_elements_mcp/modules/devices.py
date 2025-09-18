@@ -183,7 +183,139 @@ class DevicesModule(BaseModule):
                     },
                     "required": ["device_id", "scan_type"]
                 }
-            }
+            },
+            {
+                "name": "show_message",
+                "description": "Show message to device user",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID to show message to"
+                        },
+                        "message": {
+                            "type": "string",
+                            "maxLength": 512,
+                            "description": "Message to display to user"
+                        }
+                    },
+                    "required": ["device_id", "message"]
+                }
+            },
+            {
+                "name": "assign_profile",
+                "description": "Assign profile to device",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID to assign profile to"
+                        },
+                        "profile_id": {
+                            "type": "integer",
+                            "description": "Profile ID to assign"
+                        }
+                    },
+                    "required": ["device_id", "profile_id"]
+                }
+            },
+            {
+                "name": "get_device_operations",
+                "description": "Get device operations list",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID to get operations for"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 200,
+                            "default": 100,
+                            "description": "Maximum number of operations to return"
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor for next page"
+                        }
+                    },
+                    "required": ["device_id"]
+                }
+            },
+            {
+                "name": "get_device_operation_status",
+                "description": "Get specific device operation status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID"
+                        },
+                        "operation_id": {
+                            "type": "string",
+                            "description": "Operation ID to check status for"
+                        }
+                    },
+                    "required": ["device_id", "operation_id"]
+                }
+            },
+            {
+                "name": "get_device_statistics",
+                "description": "Get device statistics and aggregated data",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "count": {
+                            "type": "string",
+                            "enum": ["protectionStatus", "type", "state", "online", "label"],
+                            "description": "Property to count and group devices by"
+                        },
+                        "device_type": {
+                            "type": "string",
+                            "enum": ["computer", "mobile", "connector"],
+                            "description": "Filter by device type"
+                        },
+                        "state": {
+                            "type": "string",
+                            "enum": ["active", "blocked", "inactive"],
+                            "description": "Filter by device state"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_device_histogram",
+                "description": "Get device histogram statistics for the last 30 days",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "histogram": {
+                            "type": "string",
+                            "enum": ["protectionStatus", "type", "state", "online"],
+                            "description": "Property to create histogram for"
+                        },
+                        "device_type": {
+                            "type": "string",
+                            "enum": ["computer", "mobile", "connector"],
+                            "description": "Filter by device type"
+                        }
+                    },
+                    "required": ["histogram"]
+                }
+            },
         ])
         
         @self.server.list_tools()
@@ -568,6 +700,178 @@ class DevicesModule(BaseModule):
         
         return json.dumps({"success": True, "message": f"{scan_type} scan launched on device {device_id}"})
     
+    async def _show_message(self, device_id: str, message: str) -> str:
+        """Show message to device user."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        headers["Content-Type"] = "application/json"
+        
+        data = {
+            "operation": "showMessage",
+            "targets": [device_id],
+            "parameters": {
+                "message": message
+            }
+        }
+        
+        response = await self.auth._client.post(
+            "/devices/v1/operations",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code not in [200, 202, 207]:
+            raise Exception(f"Error showing message: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    async def _assign_profile(self, device_id: str, profile_id: int) -> str:
+        """Assign profile to device."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        headers["Content-Type"] = "application/json"
+        
+        data = {
+            "operation": "assignProfile",
+            "targets": [device_id],
+            "parameters": {
+                "profileId": profile_id
+            }
+        }
+        
+        response = await self.auth._client.post(
+            "/devices/v1/operations",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code not in [200, 202, 207]:
+            raise Exception(f"Error assigning profile: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    async def _get_device_operations(self, device_id: str, limit: int = 100, anchor: str = None) -> str:
+        """Get device operations list."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        
+        params = {
+            "deviceId": device_id,
+            "limit": limit
+        }
+        if anchor:
+            params["anchor"] = anchor
+        
+        response = await self.auth._client.get(
+            "/devices/v1/operations",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error getting device operations: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    async def _get_device_operation_status(self, device_id: str, operation_id: str) -> str:
+        """Get specific device operation status."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        
+        response = await self.auth._client.get(
+            f"/devices/v1/devices/operations/{operation_id}",
+            headers=headers,
+            params={"deviceId": device_id}
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error getting operation status: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    async def _get_device_statistics(self, organization_id: str = None, count: str = None, device_type: str = None, state: str = None) -> str:
+        """Get device statistics and aggregated data."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        headers["Accept"] = "application/vnd.withsecure.aggr+json"
+        
+        params = {}
+        if organization_id:
+            params["organizationId"] = organization_id
+        if count:
+            params["count"] = count
+        if device_type:
+            params["type"] = device_type
+        if state:
+            params["state"] = state
+        
+        response = await self.auth._client.get(
+            "/devices/v1/devices",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error getting device statistics: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    async def _get_device_histogram(self, histogram: str, organization_id: str = None, device_type: str = None) -> str:
+        """Get device histogram statistics for the last 30 days."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        headers["Accept"] = "application/vnd.withsecure.aggr+json"
+        
+        params = {
+            "histogram": histogram
+        }
+        if organization_id:
+            params["organizationId"] = organization_id
+        if device_type:
+            params["type"] = device_type
+        
+        response = await self.auth._client.get(
+            "/devices/v1/devices",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error getting device histogram: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return json.dumps(result)
+    
+    
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
@@ -624,6 +928,88 @@ class DevicesModule(BaseModule):
                 device_id = arguments["device_id"]
                 scan_type = arguments["scan_type"]
                 result = await self._scan_device(device_id, scan_type)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "show_message":
+                device_id = arguments["device_id"]
+                message = arguments["message"]
+                result = await self._show_message(device_id, message)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "assign_profile":
+                device_id = arguments["device_id"]
+                profile_id = arguments["profile_id"]
+                result = await self._assign_profile(device_id, profile_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_device_operations":
+                device_id = arguments["device_id"]
+                limit = arguments.get("limit", 100)
+                anchor = arguments.get("anchor")
+                result = await self._get_device_operations(device_id, limit, anchor)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_device_operation_status":
+                device_id = arguments["device_id"]
+                operation_id = arguments["operation_id"]
+                result = await self._get_device_operation_status(device_id, operation_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_device_statistics":
+                organization_id = arguments.get("organization_id")
+                count = arguments.get("count")
+                device_type = arguments.get("device_type")
+                state = arguments.get("state")
+                result = await self._get_device_statistics(organization_id, count, device_type, state)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_device_histogram":
+                histogram = arguments["histogram"]
+                organization_id = arguments.get("organization_id")
+                device_type = arguments.get("device_type")
+                result = await self._get_device_histogram(histogram, organization_id, device_type)
                 return {
                     "content": [
                         {
