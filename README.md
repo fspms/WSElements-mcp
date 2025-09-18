@@ -8,7 +8,15 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 - **Security Events** : Retrieve and analyze security events
 - **Organizations** : Manage organization information
 - **Devices** : Monitor and perform actions on devices
+- **Response Actions** : Execute security response actions on devices
 - **OAuth2 Authentication** : Secure integration with WithSecure Elements API
+
+## Prerequisites
+
+- Python 3.10 or higher
+- WithSecure Elements API credentials (Client ID, Client Secret)
+- Organization ID (optional, can be retrieved via API)
+- Docker (for containerized deployment)
 
 ## Installation
 
@@ -51,7 +59,7 @@ services:
       - WITHSECURE_ORGANIZATION_ID=your_organization_id
       - MCP_DEBUG=false
       - MCP_LOG_LEVEL=INFO
-      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices
+      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     healthcheck:
@@ -96,7 +104,7 @@ WITHSECURE_ORGANIZATION_ID=your_organization_id
 # MCP Server Configuration
 MCP_DEBUG=false
 MCP_LOG_LEVEL=INFO
-WITHSECURE_MCP_MODULES=incidents,events,organizations,devices
+WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
 ```
 
 ### Available Environments
@@ -104,6 +112,16 @@ WITHSECURE_MCP_MODULES=incidents,events,organizations,devices
 - **Production** : `https://api.connect.withsecure.com`
 - **Staging** : `https://api.connect-stg.fsapi.com`
 - **CI** : `https://api.connect-ci.fsapi.com`
+
+### Module Configuration
+
+The server supports 5 main modules that can be enabled/disabled:
+
+- **`incidents`** : Broad Context Detections (BCDs) management
+- **`events`** : Security events analysis and monitoring
+- **`organizations`** : Organization information and settings
+- **`devices`** : Device monitoring and management
+- **`response_actions`** : Security response actions execution
 
 ## Usage
 
@@ -141,7 +159,7 @@ The WithSecure Elements MCP Server supports multiple ways to specify which modul
 
 ```bash
 # Enable specific modules
-withsecure-elements-mcp --modules incidents,events,organizations,devices
+withsecure-elements-mcp --modules incidents,events,organizations,devices,response_actions
 
 # Enable only one module
 withsecure-elements-mcp --modules incidents
@@ -151,7 +169,7 @@ withsecure-elements-mcp --modules incidents
 
 ```bash
 # Export environment variable
-export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices
+export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
 withsecure-elements-mcp
 ```
 
@@ -168,7 +186,7 @@ from withsecure_elements_mcp.server import WithSecureElementsMCPServer
 server = WithSecureElementsMCPServer(
     base_url="https://api.connect.withsecure.com",
     debug=True,
-    enabled_modules=["incidents", "events", "organizations", "devices"]
+    enabled_modules=["incidents", "events", "organizations", "devices", "response_actions"]
 )
 
 # Run with stdio transport (default)
@@ -210,7 +228,7 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
         "-e",
         "MCP_LOG_LEVEL=INFO",
         "-e",
-        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices",
+        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions",
         "ghcr.io/fspms/wselements-mcp:latest",
         "--transport",
         "streamable-http",
@@ -266,7 +284,7 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
         "/path/to/.env",
         "withsecure-elements-mcp",
         "--modules",
-        "incidents,events"
+        "incidents,events,response_actions"
       ]
     }
   }
@@ -295,6 +313,45 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 - Retrieve device details
 - Perform actions on devices
 
+### Response Actions
+- List response actions responses
+- Create response actions on devices
+- Execute security actions including:
+  - **Process Management**: Kill threads, kill processes, collect process memory
+  - **Memory Analysis**: Full memory dumps, process memory collection
+  - **File Operations**: Collect files, delete files, quarantine/unquarantine files
+  - **System Control**: Run commands, restart/shutdown devices
+  - **Network Isolation**: Isolate devices from network, release from isolation
+  - **Agent Management**: Restart security agents
+
+## Examples
+
+The project includes several usage examples in the `examples/` directory:
+
+- **`basic_usage.py`** : Basic server setup and configuration
+- **`sse_usage.py`** : Server-Sent Events transport example
+- **`streamable_http_usage.py`** : HTTP transport example
+
+### Quick Start Example
+
+```python
+import asyncio
+from withsecure_elements_mcp.server import WithSecureElementsMCPServer
+
+async def main():
+    # Create server with all modules enabled
+    server = WithSecureElementsMCPServer(
+        debug=True,
+        enabled_modules=["incidents", "events", "organizations", "devices", "response_actions"]
+    )
+    
+    # Run with stdio transport
+    await server.run("stdio")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 ## Development
 
 ### Development Environment Setup
@@ -309,6 +366,13 @@ uv sync --all-extras
 
 # Activate virtual environment
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Or use the provided startup scripts
+# On Windows:
+.\scripts\start.ps1
+
+# On Linux/macOS:
+./scripts/start.sh
 ```
 
 ### Running Tests
@@ -324,6 +388,35 @@ pytest -v -s
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Security Considerations
+
+- **API Credentials** : Store your WithSecure API credentials securely using environment variables or secret management systems
+- **Network Security** : Use HTTPS in production environments
+- **Access Control** : Limit access to the MCP server to authorized users only
+- **Logging** : Monitor and audit all API calls and response actions
+- **Response Actions** : Use response actions carefully as they can affect system operations
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Authentication Errors** : Verify your API credentials and organization ID
+2. **Module Not Found** : Ensure the module is included in `WITHSECURE_MCP_MODULES`
+3. **Connection Issues** : Check network connectivity and API endpoint URLs
+4. **Permission Errors** : Verify your API credentials have the necessary permissions
+
+### Debug Mode
+
+Enable debug mode for detailed logging:
+
+```bash
+# Environment variable
+export MCP_DEBUG=true
+
+# Command line
+withsecure-elements-mcp --debug
+```
 
 ## Support
 
