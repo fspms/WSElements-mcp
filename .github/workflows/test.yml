@@ -57,18 +57,9 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v5
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
     - name: Build Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        push: false
-        tags: withsecure-elements-mcp:test
-        load: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      run: |
+        docker build -t withsecure-elements-mcp:test .
 
     - name: Test Docker image
       run: |
