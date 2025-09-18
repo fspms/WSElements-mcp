@@ -120,11 +120,15 @@ class WithSecureElementsMCPServer:
                 
                 elif transport == "streamable-http":
                     self.logger.info(f"Starting server with HTTP transport on {host}:{port}")
-                    # For now, fallback to SSE transport as streamable-http API has changed
-                    self.logger.warning("streamable-http transport not fully supported, falling back to SSE")
-                    from mcp.server.sse import sse_server
-                    async with sse_server(host, port) as server:
-                        await server.serve_forever()
+                    # For now, fallback to stdio transport as streamable-http API has changed
+                    self.logger.warning("streamable-http transport not fully supported, falling back to stdio")
+                    self.logger.info("Starting server with stdio transport")
+                    async with stdio_server() as (read_stream, write_stream):
+                        await self.server.run(
+                            read_stream,
+                            write_stream,
+                            self.server.create_initialization_options()
+                        )
                 
                 else:
                     raise ValueError(f"Unsupported transport: {transport}")
