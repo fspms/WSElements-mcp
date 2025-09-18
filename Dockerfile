@@ -24,6 +24,9 @@ COPY pyproject.toml ./
 COPY README.md ./
 COPY LICENSE ./
 
+# Copy source code
+COPY withsecure_elements_mcp/ ./withsecure_elements_mcp/
+
 # Install package
 RUN pip install --no-cache-dir -e .
 
