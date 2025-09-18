@@ -18,6 +18,8 @@ class BaseModule(ABC):
         self.server = server
         self.auth = auth
         self.config = config
+        self._tools = []
+        self._resources = []
         self._register_resources()
         self._register_tools()
     
@@ -42,3 +44,16 @@ class BaseModule(ABC):
     def description(self) -> str:
         """Module description."""
         pass
+    
+    def get_tools(self) -> List[Dict[str, Any]]:
+        """Get list of tools for HTTP transport."""
+        return self._tools
+    
+    def get_resources(self) -> List[Dict[str, Any]]:
+        """Get list of resources for HTTP transport."""
+        return self._resources
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Call a tool by name with arguments."""
+        # This will be implemented by subclasses
+        return None

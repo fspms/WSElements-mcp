@@ -42,6 +42,14 @@ class IncidentsModule(BaseModule):
     def _register_resources(self) -> None:
         """Register resources for incidents."""
         
+        # Add resources to the list for HTTP transport
+        self._resources.append({
+            "uri": "withsecure://incidents",
+            "name": "Incidents",
+            "description": "WithSecure Elements incidents list",
+            "mimeType": "application/json"
+        })
+        
         @self.server.list_resources()
         async def list_incidents() -> List[Resource]:
             """List available incident resources."""
@@ -71,6 +79,110 @@ class IncidentsModule(BaseModule):
     
     def _register_tools(self) -> None:
         """Register tools for incidents."""
+        
+        # Add tools to the list for HTTP transport
+        self._tools.extend([
+            {
+                "name": "list_incidents",
+                "description": "List WithSecure Elements incidents (BCDs)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "archived": {
+                            "type": "boolean",
+                            "description": "Filter by archive status"
+                        },
+                        "severity": {
+                            "type": "string",
+                            "description": "Filter by severity level"
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "Filter by status"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of incidents to return",
+                            "default": 100
+                        },
+                        "created_timestamp_start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Start of creation time range"
+                        },
+                        "created_timestamp_end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "End of creation time range"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_incident",
+                "description": "Retrieve details of a specific incident",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Incident ID"
+                        }
+                    },
+                    "required": ["incident_id"]
+                }
+            },
+            {
+                "name": "update_incident_status",
+                "description": "Update incident status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Incident ID"
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "New incident status"
+                        }
+                    },
+                    "required": ["incident_id", "status"]
+                }
+            },
+            {
+                "name": "archive_incident",
+                "description": "Archive an incident",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Incident ID"
+                        }
+                    },
+                    "required": ["incident_id"]
+                }
+            },
+            {
+                "name": "unarchive_incident",
+                "description": "Unarchive an incident",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Incident ID"
+                        }
+                    },
+                    "required": ["incident_id"]
+                }
+            }
+        ])
         
         @self.server.list_tools()
         async def list_incident_tools() -> List[Tool]:
@@ -345,3 +457,81 @@ class IncidentsModule(BaseModule):
             raise Exception(f"Error unarchiving: {response.status_code} - {response.text}")
         
         return json.dumps({"success": True, "message": f"Incident {incident_id} unarchived"})
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Call a tool by name with arguments."""
+        try:
+            if tool_name == "list_incidents":
+                filters = IncidentFilters(**arguments)
+                incidents = await self._get_incidents(filters)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": incidents
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_incident":
+                incident_id = arguments["incident_id"]
+                incident = await self._get_incident(incident_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": incident
+                        }
+                    ]
+                }
+            
+            elif tool_name == "update_incident_status":
+                incident_id = arguments["incident_id"]
+                status = arguments["status"]
+                result = await self._update_incident_status(incident_id, status)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "archive_incident":
+                incident_id = arguments["incident_id"]
+                result = await self._archive_incident(incident_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "unarchive_incident":
+                incident_id = arguments["incident_id"]
+                result = await self._unarchive_incident(incident_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            else:
+                return None
+                
+        except Exception as e:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Error: {str(e)}"
+                    }
+                ],
+                "isError": True
+            }

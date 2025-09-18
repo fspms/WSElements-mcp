@@ -120,7 +120,7 @@ class WithSecureElementsMCPServer:
                 
                 elif transport == "streamable-http":
                     self.logger.info(f"Starting server with HTTP transport on {host}:{port}")
-                    # Create a simple HTTP server for MCP
+                    # Create a proper MCP HTTP server
                     from aiohttp import web
                     import json
                     
@@ -128,23 +128,110 @@ class WithSecureElementsMCPServer:
                         """Handle MCP requests via HTTP."""
                         try:
                             data = await request.json()
-                            self.logger.info(f"Received MCP request: {data.get('method', 'unknown')}")
+                            method = data.get('method', '')
+                            request_id = data.get('id')
                             
-                            # For now, return a simple response
-                            return web.json_response({
-                                "jsonrpc": "2.0",
-                                "id": data.get("id"),
-                                "result": {
-                                    "capabilities": {
-                                        "tools": True,
-                                        "resources": True
-                                    },
-                                    "serverInfo": {
-                                        "name": "withsecure-elements-mcp",
-                                        "version": "0.1.0"
+                            self.logger.info(f"Received MCP request: {method}")
+                            
+                            # Handle different MCP methods
+                            if method == "initialize":
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "result": {
+                                        "protocolVersion": "2024-11-05",
+                                        "capabilities": {
+                                            "tools": {
+                                                "listChanged": True
+                                            },
+                                            "resources": {
+                                                "subscribe": True,
+                                                "listChanged": True
+                                            },
+                                            "prompts": {
+                                                "listChanged": True
+                                            },
+                                            "logging": {}
+                                        },
+                                        "serverInfo": {
+                                            "name": "withsecure-elements-mcp",
+                                            "version": "0.1.0"
+                                        }
                                     }
-                                }
-                            })
+                                })
+                            
+                            elif method == "tools/list":
+                                # Collect all tools from modules
+                                tools = []
+                                for module in self.modules:
+                                    if hasattr(module, 'get_tools'):
+                                        tools.extend(module.get_tools())
+                                
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "result": {
+                                        "tools": tools
+                                    }
+                                })
+                            
+                            elif method == "tools/call":
+                                tool_name = data.get('params', {}).get('name', '')
+                                arguments = data.get('params', {}).get('arguments', {})
+                                
+                                # Find and call the tool
+                                for module in self.modules:
+                                    if hasattr(module, 'call_tool'):
+                                        result = await module.call_tool(tool_name, arguments)
+                                        if result is not None:
+                                            return web.json_response({
+                                                "jsonrpc": "2.0",
+                                                "id": request_id,
+                                                "result": result
+                                            })
+                                
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "error": {
+                                        "code": -32601,
+                                        "message": f"Tool '{tool_name}' not found"
+                                    }
+                                })
+                            
+                            elif method == "resources/list":
+                                # Collect all resources from modules
+                                resources = []
+                                for module in self.modules:
+                                    if hasattr(module, 'get_resources'):
+                                        resources.extend(module.get_resources())
+                                
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "result": {
+                                        "resources": resources
+                                    }
+                                })
+                            
+                            elif method == "notifications/initialized":
+                                # Acknowledge initialization
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "result": {}
+                                })
+                            
+                            else:
+                                return web.json_response({
+                                    "jsonrpc": "2.0",
+                                    "id": request_id,
+                                    "error": {
+                                        "code": -32601,
+                                        "message": f"Method '{method}' not found"
+                                    }
+                                })
+                                
                         except Exception as e:
                             self.logger.error(f"Error handling MCP request: {e}")
                             return web.json_response({
@@ -160,6 +247,29 @@ class WithSecureElementsMCPServer:
                     app = web.Application()
                     app.router.add_post("/", handle_mcp_request)
                     app.router.add_get("/health", lambda r: web.json_response({"status": "ok"}))
+                    
+                    # Add CORS headers for n8n compatibility
+                    @web.middleware
+                    async def cors_handler(request, handler):
+                        response = await handler(request)
+                        response.headers['Access-Control-Allow-Origin'] = '*'
+                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                        return response
+                    
+                    app.middlewares.append(cors_handler)
+                    
+                    # Handle OPTIONS requests for CORS
+                    async def options_handler(request):
+                        return web.Response(
+                            headers={
+                                'Access-Control-Allow-Origin': '*',
+                                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+                            }
+                        )
+                    
+                    app.router.add_options("/", options_handler)
                     
                     # Start server
                     runner = web.AppRunner(app)
