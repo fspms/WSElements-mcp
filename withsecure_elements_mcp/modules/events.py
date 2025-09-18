@@ -40,6 +40,14 @@ class EventsModule(BaseModule):
     def _register_resources(self) -> None:
         """Register resources for events."""
         
+        # Add resources to the list for HTTP transport
+        self._resources.append({
+            "uri": "withsecure://events",
+            "name": "Security Events",
+            "description": "WithSecure Elements security events list",
+            "mimeType": "application/json"
+        })
+        
         @self.server.list_resources()
         async def list_events() -> List[Resource]:
             """List available event resources."""
@@ -69,6 +77,95 @@ class EventsModule(BaseModule):
     
     def _register_tools(self) -> None:
         """Register tools for events."""
+        
+        # Add tools to the list for HTTP transport
+        self._tools.extend([
+            {
+                "name": "list_events",
+                "description": "List WithSecure Elements security events",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "device_id": {
+                            "type": "string",
+                            "description": "Filter by device ID"
+                        },
+                        "event_type": {
+                            "type": "string",
+                            "description": "Filter by event type"
+                        },
+                        "severity": {
+                            "type": "string",
+                            "description": "Filter by severity level"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of events to return",
+                            "default": 100
+                        },
+                        "created_timestamp_start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Start of creation time range"
+                        },
+                        "created_timestamp_end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "End of creation time range"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_event",
+                "description": "Retrieve details of a specific event",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {
+                            "type": "string",
+                            "description": "Event ID"
+                        }
+                    },
+                    "required": ["event_id"]
+                }
+            },
+            {
+                "name": "get_event_types",
+                "description": "Retrieve list of available event types",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
+            {
+                "name": "get_event_statistics",
+                "description": "Retrieve event statistics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "created_timestamp_start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Start of time range"
+                        },
+                        "created_timestamp_end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "End of time range"
+                        }
+                    }
+                }
+            }
+        ])
         
         @self.server.list_tools()
         async def list_event_tools() -> List[Tool]:
@@ -302,3 +399,66 @@ class EventsModule(BaseModule):
             raise Exception(f"Error retrieving statistics: {response.status_code} - {response.text}")
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Call a tool by name with arguments."""
+        try:
+            if tool_name == "list_events":
+                filters = EventFilters(**arguments)
+                events = await self._get_events(filters)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": events
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_event":
+                event_id = arguments["event_id"]
+                event = await self._get_event(event_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": event
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_event_types":
+                event_types = await self._get_event_types()
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": event_types
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_event_statistics":
+                statistics = await self._get_event_statistics(arguments)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": statistics
+                        }
+                    ]
+                }
+            
+            else:
+                return None
+                
+        except Exception as e:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Error: {str(e)}"
+                    }
+                ],
+                "isError": True
+            }

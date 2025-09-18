@@ -40,6 +40,14 @@ class DevicesModule(BaseModule):
     def _register_resources(self) -> None:
         """Register resources for devices."""
         
+        # Add resources to the list for HTTP transport
+        self._resources.append({
+            "uri": "withsecure://devices",
+            "name": "Devices",
+            "description": "WithSecure Elements devices list",
+            "mimeType": "application/json"
+        })
+        
         @self.server.list_resources()
         async def list_devices() -> List[Resource]:
             """List available device resources."""
@@ -69,6 +77,114 @@ class DevicesModule(BaseModule):
     
     def _register_tools(self) -> None:
         """Register tools for devices."""
+        
+        # Add tools to the list for HTTP transport
+        self._tools.extend([
+            {
+                "name": "list_devices",
+                "description": "List WithSecure Elements devices",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional)"
+                        },
+                        "device_name": {
+                            "type": "string",
+                            "description": "Filter by device name"
+                        },
+                        "device_type": {
+                            "type": "string",
+                            "description": "Filter by device type"
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "Filter by device status"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of devices to return",
+                            "default": 100
+                        },
+                        "last_seen_start": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Start of last seen time range"
+                        },
+                        "last_seen_end": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "End of last seen time range"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_device",
+                "description": "Retrieve details of a specific device",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID"
+                        }
+                    },
+                    "required": ["device_id"]
+                }
+            },
+            {
+                "name": "isolate_device",
+                "description": "Isolate a device from the network",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Reason for isolation"
+                        }
+                    },
+                    "required": ["device_id", "reason"]
+                }
+            },
+            {
+                "name": "unisolate_device",
+                "description": "Unisolate a device from the network",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID"
+                        }
+                    },
+                    "required": ["device_id"]
+                }
+            },
+            {
+                "name": "scan_device",
+                "description": "Launch a scan on a device",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device ID"
+                        },
+                        "scan_type": {
+                            "type": "string",
+                            "description": "Type of scan to perform"
+                        }
+                    },
+                    "required": ["device_id", "scan_type"]
+                }
+            }
+        ])
         
         @self.server.list_tools()
         async def list_device_tools() -> List[Tool]:
@@ -451,3 +567,82 @@ class DevicesModule(BaseModule):
             raise Exception(f"Error launching scan: {response.status_code} - {response.text}")
         
         return json.dumps({"success": True, "message": f"{scan_type} scan launched on device {device_id}"})
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Call a tool by name with arguments."""
+        try:
+            if tool_name == "list_devices":
+                filters = DeviceFilters(**arguments)
+                devices = await self._get_devices(filters)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": devices
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_device":
+                device_id = arguments["device_id"]
+                device = await self._get_device(device_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": device
+                        }
+                    ]
+                }
+            
+            elif tool_name == "isolate_device":
+                device_id = arguments["device_id"]
+                reason = arguments["reason"]
+                result = await self._isolate_device(device_id, reason)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "unisolate_device":
+                device_id = arguments["device_id"]
+                result = await self._unisolate_device(device_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "scan_device":
+                device_id = arguments["device_id"]
+                scan_type = arguments["scan_type"]
+                result = await self._scan_device(device_id, scan_type)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            else:
+                return None
+                
+        except Exception as e:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Error: {str(e)}"
+                    }
+                ],
+                "isError": True
+            }

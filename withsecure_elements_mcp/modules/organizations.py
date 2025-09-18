@@ -26,6 +26,22 @@ class OrganizationsModule(BaseModule):
     def _register_resources(self) -> None:
         """Register resources for organizations."""
         
+        # Add resources to the list for HTTP transport
+        self._resources.extend([
+            {
+                "uri": "withsecure://organizations",
+                "name": "Organizations",
+                "description": "WithSecure Elements organizations list",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": "withsecure://organizations/current",
+                "name": "Current Organization",
+                "description": "Current organization information",
+                "mimeType": "application/json"
+            }
+        ])
+        
         @self.server.list_resources()
         async def list_organizations() -> List[Resource]:
             """List available organization resources."""
@@ -65,6 +81,46 @@ class OrganizationsModule(BaseModule):
     
     def _register_tools(self) -> None:
         """Register tools for organizations."""
+        
+        # Add tools to the list for HTTP transport
+        self._tools.extend([
+            {
+                "name": "get_current_organization",
+                "description": "Retrieve current organization information",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
+            {
+                "name": "list_organizations",
+                "description": "List all accessible organizations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of organizations to return",
+                            "default": 100
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_organization",
+                "description": "Retrieve details of a specific organization",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID"
+                        }
+                    },
+                    "required": ["organization_id"]
+                }
+            }
+        ])
         
         @self.server.list_tools()
         async def list_organization_tools() -> List[Tool]:
@@ -262,3 +318,55 @@ class OrganizationsModule(BaseModule):
             raise Exception(f"Error retrieving statistics: {response.status_code} - {response.text}")
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Call a tool by name with arguments."""
+        try:
+            if tool_name == "get_current_organization":
+                current_org = await self._get_current_organization()
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": current_org
+                        }
+                    ]
+                }
+            
+            elif tool_name == "list_organizations":
+                limit = arguments.get("limit", 100)
+                organizations = await self._get_organizations(limit)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": organizations
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_organization":
+                organization_id = arguments["organization_id"]
+                organization = await self._get_organization(organization_id)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": organization
+                        }
+                    ]
+                }
+            
+            else:
+                return None
+                
+        except Exception as e:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Error: {str(e)}"
+                    }
+                ],
+                "isError": True
+            }
