@@ -92,11 +92,11 @@ class EventsModule(BaseModule):
                         },
                         "device_id": {
                             "type": "string",
-                            "description": "Filter by device ID"
+                            "description": "Filter by device ID (targetId)"
                         },
                         "event_type": {
                             "type": "string",
-                            "description": "Filter by event type"
+                            "description": "Filter by engine type (e.g., deepGuard, applicationControl)"
                         },
                         "severity": {
                             "type": "string",
@@ -110,12 +110,12 @@ class EventsModule(BaseModule):
                         "created_timestamp_start": {
                             "type": "string",
                             "format": "date-time",
-                            "description": "Start of creation time range"
+                            "description": "Start of persistence time range (persistenceTimestampStart)"
                         },
                         "created_timestamp_end": {
                             "type": "string",
                             "format": "date-time",
-                            "description": "End of creation time range"
+                            "description": "End of persistence time range (persistenceTimestampEnd)"
                         }
                     }
                 }
@@ -183,11 +183,11 @@ class EventsModule(BaseModule):
                             },
                             "device_id": {
                                 "type": "string",
-                                "description": "Filter by device ID"
+                                "description": "Filter by device ID (targetId)"
                             },
                             "event_type": {
                                 "type": "string",
-                                "description": "Filter by event type"
+                                "description": "Filter by engine type (e.g., deepGuard, applicationControl)"
                             },
                             "severity": {
                                 "type": "string",
@@ -201,12 +201,12 @@ class EventsModule(BaseModule):
                             "created_timestamp_start": {
                                 "type": "string",
                                 "format": "date-time",
-                                "description": "Start of creation time range"
+                                "description": "Start of persistence time range (persistenceTimestampStart)"
                             },
                             "created_timestamp_end": {
                                 "type": "string",
                                 "format": "date-time",
-                                "description": "End of creation time range"
+                                "description": "End of persistence time range (persistenceTimestampEnd)"
                             }
                         }
                     }
@@ -298,27 +298,43 @@ class EventsModule(BaseModule):
             elif self.config.organization_id:
                 params["organizationId"] = self.config.organization_id
             
-            if filters.event_id:
-                params["eventId"] = filters.event_id
+            # Map parameters to correct API names
             if filters.created_timestamp_start:
-                params["createdTimestampStart"] = filters.created_timestamp_start
+                params["persistenceTimestampStart"] = filters.created_timestamp_start
             if filters.created_timestamp_end:
-                params["createdTimestampEnd"] = filters.created_timestamp_end
+                params["persistenceTimestampEnd"] = filters.created_timestamp_end
             if filters.device_id:
-                params["deviceId"] = filters.device_id
+                params["targetId"] = filters.device_id
             if filters.event_type:
-                params["eventType"] = filters.event_type
+                params["engine"] = filters.event_type
             if filters.severity:
                 params["severity"] = filters.severity
             if filters.limit:
                 params["limit"] = filters.limit
             if filters.anchor:
                 params["anchor"] = filters.anchor
+                
+        # Add required parameters if not provided
+        if "persistenceTimestampStart" not in params and "persistenceTimestampEnd" not in params:
+            # Default to last 24 hours if no time range specified
+            from datetime import datetime, timedelta
+            end_time = datetime.utcnow()
+            start_time = end_time - timedelta(days=1)
+            params["persistenceTimestampStart"] = start_time.isoformat() + "Z"
+            params["persistenceTimestampEnd"] = end_time.isoformat() + "Z"
         
-        response = await self.auth._client.get(
-            "/events/v1/events",
+        # Add default engine group if no engine specified
+        if "engine" not in params and "engineGroup" not in params:
+            params["engineGroup"] = "epp"  # Default to Endpoint Protection
+        
+        # Add required headers for security events endpoint
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Accept"] = "application/json"
+        
+        response = await self.auth._client.post(
+            "/security-events/v1/security-events",
             headers=headers,
-            params=params
+            data=params
         )
         
         if response.status_code != 200:
@@ -334,15 +350,28 @@ class EventsModule(BaseModule):
             raise RuntimeError("HTTP client not initialized")
         
         headers = await self.auth.get_headers()
-        params = {"eventId": event_id}
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Accept"] = "application/json"
+        
+        params = {"targetId": event_id}  # Use targetId instead of eventId
         
         if self.config.organization_id:
             params["organizationId"] = self.config.organization_id
+            
+        # Add required time range parameters
+        from datetime import datetime, timedelta
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=7)  # Search last 7 days
+        params["persistenceTimestampStart"] = start_time.isoformat() + "Z"
+        params["persistenceTimestampEnd"] = end_time.isoformat() + "Z"
         
-        response = await self.auth._client.get(
-            "/events/v1/events",
+        # Add default engine group
+        params["engineGroup"] = "epp"
+        
+        response = await self.auth._client.post(
+            "/security-events/v1/security-events",
             headers=headers,
-            params=params
+            data=params
         )
         
         if response.status_code != 200:
@@ -354,29 +383,34 @@ class EventsModule(BaseModule):
         """Retrieve list of available event types."""
         import json
         
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
+        # Event types endpoint not available in WithSecure Elements API
+        # Return available engines instead
+        available_engines = [
+            "deepGuard", "applicationControl", "browsingProtection", "collaborationProtection",
+            "connectionControl", "dataguard", "deviceControl", "endpointDetectionAndResponse",
+            "exposureManagement", "firewall", "integrityChecker", "realTimeAndManualScanning",
+            "rollback", "serverShareProtection", "setting", "systemEventsLog", "tamperProtection",
+            "webContentControl", "webTrafficScanning", "xfence"
+        ]
         
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.get(
-            "/events/v1/event-types",
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving event types: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps({
+            "message": "Event types endpoint not available. Available engines:",
+            "engines": available_engines
+        }, indent=2, ensure_ascii=False)
     
     async def _get_event_statistics(self, filters: Dict[str, Any]) -> str:
         """Retrieve event statistics."""
         import json
         
+        # Statistics endpoint not available in WithSecure Elements API
+        # Use aggregation feature instead
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
         
         headers = await self.auth.get_headers()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Accept"] = "application/vnd.withsecure.aggr+json"
+        
         params = {}
         
         if filters.get("organization_id"):
@@ -385,14 +419,18 @@ class EventsModule(BaseModule):
             params["organizationId"] = self.config.organization_id
         
         if filters.get("created_timestamp_start"):
-            params["createdTimestampStart"] = filters["created_timestamp_start"]
+            params["persistenceTimestampStart"] = filters["created_timestamp_start"]
         if filters.get("created_timestamp_end"):
-            params["createdTimestampEnd"] = filters["created_timestamp_end"]
+            params["persistenceTimestampEnd"] = filters["created_timestamp_end"]
         
-        response = await self.auth._client.get(
-            "/events/v1/statistics",
+        # Add required parameters for aggregation
+        params["count"] = "engine"  # Group by engine
+        params["engineGroup"] = "epp"  # Default to EPP events
+        
+        response = await self.auth._client.post(
+            "/security-events/v1/security-events",
             headers=headers,
-            params=params
+            data=params
         )
         
         if response.status_code != 200:
