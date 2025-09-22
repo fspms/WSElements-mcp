@@ -2,7 +2,7 @@
 MCP module for WithSecure Elements security events management.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
@@ -10,6 +10,150 @@ from pydantic import BaseModel
 from .base import BaseModule
 from ..auth import WithSecureAuth
 from ..config import WithSecureConfig
+
+
+# ===== CONSTANTES DE VALIDATION DEPUIS LES SPÉCIFICATIONS API =====
+# Extraites de api-spec (1).yaml et api-spec (2).yaml
+
+# Engines (moteurs de sécurité) - Liste complète depuis les spécifications
+ALLOWED_ENGINES: List[str] = [
+    "AMSI",
+    "activityMonitor",
+    "activityMonitorClientProtection",
+    "applicationControl",
+    "browsingProtection",
+    "cloudIdentityAzure",
+    "cloudWorkloadAzure",
+    "connectionControl",
+    "connector",
+    "dataGuard",
+    "deepGuard",
+    "deviceControl",
+    "edr",
+    "emailBreach",
+    "emailScan",
+    "fileScanning",
+    "firewall",
+    "inboxRuleScan",
+    "integrityChecker",
+    "oneDriveScan",
+    "realtimeScanning",
+    "reputationBasedBrowsing",
+    "setting",
+    "sharePointScan",
+    "systemEventsLog",
+    "tamperProtection",
+    "teamsScan",
+    "webContentControl",
+    "webTrafficScanning",
+    "xFence",
+    "xmRecommendation",
+    # Engines supplémentaires de la spécification 2
+    "manualScanning",
+    "cloud",  # deprecated mais encore présent
+]
+
+# Engine Groups (groupes de moteurs)
+ALLOWED_ENGINE_GROUPS: List[str] = ["epp", "edr", "ecp", "xm"]
+
+# Severities (niveaux de gravité)
+ALLOWED_SEVERITIES: List[str] = ["critical", "warning", "info"]
+
+# Count values (pour l'agrégation)
+ALLOWED_COUNT_VALUES: List[str] = [
+    "engine",
+    "url",
+    "alertType", 
+    "deviceId",
+    "infectionName",
+    "categories",
+    "appliedRule",
+    "filePath",
+    "description"
+]
+
+# Order (ordre de tri)
+ALLOWED_ORDER_VALUES: List[str] = ["asc", "desc"]
+
+# Language (langues supportées)
+ALLOWED_LANGUAGES: List[str] = [
+    "en",      # English
+    "de",      # German
+    "es-MX",   # Spanish (Mexico)
+    "fi",      # Finnish
+    "fr",      # French
+    "it",      # Italian
+    "ja",      # Japanese
+    "pl",      # Polish
+    "pt-BR",   # Portuguese (Brazil)
+    "sv",      # Swedish
+    "zh-TW"    # Chinese (Taiwan)
+]
+
+# Actions (actions effectuées)
+ALLOWED_ACTIONS: List[str] = [
+    "none",
+    "blocked",
+    "renamed", 
+    "deleted",
+    "disinfected",
+    "quarantined",
+    "created",
+    "closed",
+    "merged",
+    "updated",
+    "reported"
+]
+
+# Limites
+SECURITY_EVENTS_LIMIT_MIN = 1
+SECURITY_EVENTS_LIMIT_MAX = 200
+
+# Mapping des engines vers leurs groupes
+ENGINE_TO_GROUP_MAPPING: Dict[str, str] = {
+    # EPP (Endpoint Protection)
+    "AMSI": "epp",
+    "activityMonitor": "epp", 
+    "activityMonitorClientProtection": "epp",
+    "applicationControl": "epp",
+    "browsingProtection": "epp",
+    "connectionControl": "epp",
+    "dataGuard": "epp",
+    "deepGuard": "epp", 
+    "deviceControl": "epp",
+    "fileScanning": "epp",
+    "firewall": "epp",
+    "integrityChecker": "epp",
+    "manualScanning": "epp",
+    "realtimeScanning": "epp",
+    "reputationBasedBrowsing": "epp",
+    "setting": "epp",
+    "systemEventsLog": "epp",
+    "tamperProtection": "epp",
+    "webContentControl": "epp",
+    "webTrafficScanning": "epp",
+    "xFence": "epp",
+    
+    # EDR (Detection and Response)
+    "edr": "edr",
+    
+    # ECP (Collaboration Protection)
+    "emailBreach": "ecp",
+    "emailScan": "ecp",
+    "inboxRuleScan": "ecp",
+    "oneDriveScan": "ecp",
+    "sharePointScan": "ecp",
+    "teamsScan": "ecp",
+    "cloudIdentityAzure": "ecp",
+    "cloudWorkloadAzure": "ecp",
+    "cloud": "ecp",  # deprecated
+    
+    # XM (Exposure Management)
+    "xmRecommendation": "xm",
+    
+    # Connector
+    "connector": "epp"
+}
 
 
 class EventFilters(BaseModel):
@@ -20,8 +164,10 @@ class EventFilters(BaseModel):
     created_timestamp_start: Optional[str] = None
     created_timestamp_end: Optional[str] = None
     device_id: Optional[str] = None
-    event_type: Optional[str] = None
-    severity: Optional[str] = None
+    # Accept single or multiple engines/severities/engine groups
+    event_type: Optional[Union[str, List[str]]] = None
+    engine_group: Optional[Union[str, List[str]]] = None
+    severity: Optional[Union[str, List[str]]] = None
     limit: Optional[int] = 100
     anchor: Optional[str] = None
 
@@ -95,12 +241,25 @@ class EventsModule(BaseModule):
                             "description": "Filter by device ID (targetId)"
                         },
                         "event_type": {
-                            "type": "string",
-                            "description": "Filter by engine type (e.g., deepGuard, applicationControl)"
+                            "oneOf": [
+                                {"type": "string", "enum": ALLOWED_ENGINES},
+                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINES}}
+                            ],
+                            "description": "Filter by engine(s). Allowed: " + ", ".join(ALLOWED_ENGINES)
+                        },
+                        "engine_group": {
+                            "oneOf": [
+                                {"type": "string", "enum": ALLOWED_ENGINE_GROUPS},
+                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINE_GROUPS}}
+                            ],
+                            "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                         },
                         "severity": {
-                            "type": "string",
-                            "description": "Filter by severity level"
+                            "oneOf": [
+                                {"type": "string", "enum": ALLOWED_SEVERITIES},
+                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_SEVERITIES}}
+                            ],
+                            "description": "Filter by severity(ies). Allowed: critical, warning, info"
                         },
                         "limit": {
                             "type": "integer",
@@ -137,6 +296,14 @@ class EventsModule(BaseModule):
             {
                 "name": "get_event_types",
                 "description": "Retrieve list of available event types",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
+            {
+                "name": "get_allowed_event_types",
+                "description": "Retrieve allowed engines, engine groups, and severities for filtering",
                 "inputSchema": {
                     "type": "object",
                     "properties": {}
@@ -186,12 +353,25 @@ class EventsModule(BaseModule):
                                 "description": "Filter by device ID (targetId)"
                             },
                             "event_type": {
-                                "type": "string",
-                                "description": "Filter by engine type (e.g., deepGuard, applicationControl)"
+                                "oneOf": [
+                                    {"type": "string", "enum": ALLOWED_ENGINES},
+                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINES}}
+                                ],
+                                "description": "Filter by engine(s). Allowed: " + ", ".join(ALLOWED_ENGINES)
+                            },
+                            "engine_group": {
+                                "oneOf": [
+                                    {"type": "string", "enum": ALLOWED_ENGINE_GROUPS},
+                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINE_GROUPS}}
+                                ],
+                                "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                             },
                             "severity": {
-                                "type": "string",
-                                "description": "Filter by severity level"
+                                "oneOf": [
+                                    {"type": "string", "enum": ALLOWED_SEVERITIES},
+                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_SEVERITIES}}
+                                ],
+                                "description": "Filter by severity(ies). Allowed: critical, warning, info"
                             },
                             "limit": {
                                 "type": "integer",
@@ -228,6 +408,14 @@ class EventsModule(BaseModule):
                 Tool(
                     name="get_event_types",
                     description="Retrieve list of available event types",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                Tool(
+                    name="get_allowed_event_types",
+                    description="Retrieve allowed engines, engine groups, and severities for filtering",
                     inputSchema={
                         "type": "object",
                         "properties": {}
@@ -275,6 +463,10 @@ class EventsModule(BaseModule):
                 event_types = await self._get_event_types()
                 return [TextContent(type="text", text=event_types)]
             
+            elif name == "get_allowed_event_types":
+                allowed = await self._get_allowed_event_types()
+                return [TextContent(type="text", text=allowed)]
+            
             elif name == "get_event_statistics":
                 stats = await self._get_event_statistics(arguments)
                 return [TextContent(type="text", text=stats)]
@@ -282,6 +474,13 @@ class EventsModule(BaseModule):
             else:
                 raise ValueError(f"Unrecognized tool: {name}")
     
+    def _ensure_list(value: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return value
+        return [value]
+
     async def _get_events(self, filters: Optional[EventFilters] = None) -> str:
         """Retrieve events list."""
         import json
@@ -305,10 +504,36 @@ class EventsModule(BaseModule):
                 params["persistenceTimestampEnd"] = filters.created_timestamp_end
             if filters.device_id:
                 params["targetId"] = filters.device_id
-            if filters.event_type:
-                params["engine"] = filters.event_type
-            if filters.severity:
-                params["severity"] = filters.severity
+            # Validate and map engines
+            engines = _ensure_list(filters.event_type)
+            if engines:
+                invalid = [e for e in engines if e not in ALLOWED_ENGINES]
+                if invalid:
+                    raise ValueError(
+                        "Invalid engine(s): " + ", ".join(invalid) +
+                        ". Allowed: " + ", ".join(ALLOWED_ENGINES)
+                    )
+                params["engine"] = engines
+            # Validate and map engine groups
+            engine_groups = _ensure_list(filters.engine_group)
+            if engine_groups:
+                invalid_g = [g for g in engine_groups if g not in ALLOWED_ENGINE_GROUPS]
+                if invalid_g:
+                    raise ValueError(
+                        "Invalid engine_group(s): " + ", ".join(invalid_g) +
+                        ". Allowed: epp, edr, ecp, xm"
+                    )
+                params["engineGroup"] = engine_groups
+            # Validate and map severities
+            severities = _ensure_list(filters.severity)
+            if severities:
+                invalid_s = [s for s in severities if s not in ALLOWED_SEVERITIES]
+                if invalid_s:
+                    raise ValueError(
+                        "Invalid severity(ies): " + ", ".join(invalid_s) +
+                        ". Allowed: critical, warning, info"
+                    )
+                params["severity"] = severities
             if filters.limit:
                 params["limit"] = filters.limit
             if filters.anchor:
@@ -382,20 +607,28 @@ class EventsModule(BaseModule):
     async def _get_event_types(self) -> str:
         """Retrieve list of available event types."""
         import json
-        
-        # Event types endpoint not available in WithSecure Elements API
-        # Return available engines instead
-        available_engines = [
-            "deepGuard", "applicationControl", "browsingProtection", "collaborationProtection",
-            "connectionControl", "dataguard", "deviceControl", "endpointDetectionAndResponse",
-            "exposureManagement", "firewall", "integrityChecker", "realTimeAndManualScanning",
-            "rollback", "serverShareProtection", "setting", "systemEventsLog", "tamperProtection",
-            "webContentControl", "webTrafficScanning", "xfence"
-        ]
-        
+        # Event types endpoint not available; return allowed engines from spec
         return json.dumps({
-            "message": "Event types endpoint not available. Available engines:",
-            "engines": available_engines
+            "engines": ALLOWED_ENGINES
+        }, indent=2, ensure_ascii=False)
+
+    async def _get_allowed_event_types(self) -> str:
+        """Retrieve allowed engines, engine groups, and severities for filtering."""
+        import json
+        return json.dumps({
+            "engines": ALLOWED_ENGINES,
+            "engineGroups": ALLOWED_ENGINE_GROUPS,
+            "severities": ALLOWED_SEVERITIES,
+            "countValues": ALLOWED_COUNT_VALUES,
+            "orderValues": ALLOWED_ORDER_VALUES,
+            "languages": ALLOWED_LANGUAGES,
+            "actions": ALLOWED_ACTIONS,
+            "limits": {
+                "min": SECURITY_EVENTS_LIMIT_MIN,
+                "max": SECURITY_EVENTS_LIMIT_MAX
+            },
+            "engineGroupMapping": ENGINE_TO_GROUP_MAPPING,
+            "note": "Toutes les valeurs autorisées extraites des spécifications API officielles"
         }, indent=2, ensure_ascii=False)
     
     async def _get_event_statistics(self, filters: Dict[str, Any]) -> str:
