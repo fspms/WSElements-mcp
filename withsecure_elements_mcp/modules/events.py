@@ -474,7 +474,7 @@ class EventsModule(BaseModule):
             else:
                 raise ValueError(f"Unrecognized tool: {name}")
     
-    def _ensure_list(value: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
+    def _ensure_list(self, value: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
         if value is None:
             return None
         if isinstance(value, list):
@@ -505,7 +505,7 @@ class EventsModule(BaseModule):
             if filters.device_id:
                 params["targetId"] = filters.device_id
             # Validate and map engines
-            engines = _ensure_list(filters.event_type)
+            engines = self._ensure_list(filters.event_type)
             if engines:
                 invalid = [e for e in engines if e not in ALLOWED_ENGINES]
                 if invalid:
@@ -515,7 +515,7 @@ class EventsModule(BaseModule):
                     )
                 params["engine"] = engines
             # Validate and map engine groups
-            engine_groups = _ensure_list(filters.engine_group)
+            engine_groups = self._ensure_list(filters.engine_group)
             if engine_groups:
                 invalid_g = [g for g in engine_groups if g not in ALLOWED_ENGINE_GROUPS]
                 if invalid_g:
@@ -525,7 +525,7 @@ class EventsModule(BaseModule):
                     )
                 params["engineGroup"] = engine_groups
             # Validate and map severities
-            severities = _ensure_list(filters.severity)
+            severities = self._ensure_list(filters.severity)
             if severities:
                 invalid_s = [s for s in severities if s not in ALLOWED_SEVERITIES]
                 if invalid_s:
