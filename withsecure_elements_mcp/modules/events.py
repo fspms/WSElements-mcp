@@ -228,7 +228,7 @@ class EventsModule(BaseModule):
         self._tools.extend([
             {
                 "name": "list_events",
-                "description": "List WithSecure Elements security events",
+                "description": "List WithSecure Elements security events. For connection issues, use 'systemEventsLog' or 'edr' engines. Use get_event_types to see all available engines.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -241,24 +241,15 @@ class EventsModule(BaseModule):
                             "description": "Filter by device ID (targetId)"
                         },
                         "event_type": {
-                            "oneOf": [
-                                {"type": "string"},
-                                {"type": "array", "items": {"type": "string"}}
-                            ],
-                            "description": "Filter by engine(s). Use get_event_types to see allowed values"
+                            "type": "string",
+                            "description": "Filter by engine(s). For connection issues use 'systemEventsLog' or 'edr'"
                         },
                         "engine_group": {
-                            "oneOf": [
-                                {"type": "string"},
-                                {"type": "array", "items": {"type": "string"}}
-                            ],
+                            "type": "string",
                             "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                         },
                         "severity": {
-                            "oneOf": [
-                                {"type": "string"},
-                                {"type": "array", "items": {"type": "string"}}
-                            ],
+                            "type": "string",
                             "description": "Filter by severity(ies). Allowed: critical, warning, info"
                         },
                         "limit": {
@@ -332,7 +323,7 @@ class EventsModule(BaseModule):
             return [
                 Tool(
                     name="list_events",
-                    description="List WithSecure Elements security events",
+                    description="List WithSecure Elements security events. For connection issues, use 'systemEventsLog' or 'edr' engines. Use get_event_types to see all available engines.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -345,24 +336,15 @@ class EventsModule(BaseModule):
                                 "description": "Filter by device ID (targetId)"
                             },
                             "event_type": {
-                                "oneOf": [
-                                    {"type": "string"},
-                                    {"type": "array", "items": {"type": "string"}}
-                                ],
-                                "description": "Filter by engine(s). Use get_event_types to see allowed values"
+                                "type": "string",
+                                "description": "Filter by engine(s). For connection issues use 'systemEventsLog' or 'edr'"
                             },
                             "engine_group": {
-                                "oneOf": [
-                                    {"type": "string"},
-                                    {"type": "array", "items": {"type": "string"}}
-                                ],
+                                "type": "string",
                                 "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                             },
                             "severity": {
-                                "oneOf": [
-                                    {"type": "string"},
-                                    {"type": "array", "items": {"type": "string"}}
-                                ],
+                                "type": "string",
                                 "description": "Filter by severity(ies). Allowed: critical, warning, info"
                             },
                             "limit": {
