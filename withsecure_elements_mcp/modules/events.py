@@ -295,15 +295,7 @@ class EventsModule(BaseModule):
             },
             {
                 "name": "get_event_types",
-                "description": "Retrieve list of available event types",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            {
-                "name": "get_allowed_event_types",
-                "description": "Retrieve allowed engines, engine groups, and severities for filtering",
+                "description": "Retrieve list of available event types and all allowed values for filtering",
                 "inputSchema": {
                     "type": "object",
                     "properties": {}
@@ -407,15 +399,7 @@ class EventsModule(BaseModule):
                 ),
                 Tool(
                     name="get_event_types",
-                    description="Retrieve list of available event types",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {}
-                    }
-                ),
-                Tool(
-                    name="get_allowed_event_types",
-                    description="Retrieve allowed engines, engine groups, and severities for filtering",
+                    description="Retrieve list of available event types and all allowed values for filtering",
                     inputSchema={
                         "type": "object",
                         "properties": {}
@@ -463,9 +447,6 @@ class EventsModule(BaseModule):
                 event_types = await self._get_event_types()
                 return [TextContent(type="text", text=event_types)]
             
-            elif name == "get_allowed_event_types":
-                allowed = await self._get_allowed_event_types()
-                return [TextContent(type="text", text=allowed)]
             
             elif name == "get_event_statistics":
                 stats = await self._get_event_statistics(arguments)
@@ -605,16 +586,9 @@ class EventsModule(BaseModule):
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
     async def _get_event_types(self) -> str:
-        """Retrieve list of available event types."""
+        """Retrieve list of available event types and all allowed values."""
         import json
-        # Event types endpoint not available; return allowed engines from spec
-        return json.dumps({
-            "engines": ALLOWED_ENGINES
-        }, indent=2, ensure_ascii=False)
-
-    async def _get_allowed_event_types(self) -> str:
-        """Retrieve allowed engines, engine groups, and severities for filtering."""
-        import json
+        # Event types endpoint not available; return allowed engines and all values from spec
         return json.dumps({
             "engines": ALLOWED_ENGINES,
             "engineGroups": ALLOWED_ENGINE_GROUPS,
@@ -630,6 +604,7 @@ class EventsModule(BaseModule):
             "engineGroupMapping": ENGINE_TO_GROUP_MAPPING,
             "note": "Toutes les valeurs autorisées extraites des spécifications API officielles"
         }, indent=2, ensure_ascii=False)
+
     
     async def _get_event_statistics(self, filters: Dict[str, Any]) -> str:
         """Retrieve event statistics."""
