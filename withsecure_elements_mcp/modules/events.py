@@ -242,22 +242,22 @@ class EventsModule(BaseModule):
                         },
                         "event_type": {
                             "oneOf": [
-                                {"type": "string", "enum": ALLOWED_ENGINES},
-                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINES}}
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}}
                             ],
-                            "description": "Filter by engine(s). Allowed: " + ", ".join(ALLOWED_ENGINES)
+                            "description": "Filter by engine(s). Use get_event_types to see allowed values"
                         },
                         "engine_group": {
                             "oneOf": [
-                                {"type": "string", "enum": ALLOWED_ENGINE_GROUPS},
-                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINE_GROUPS}}
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}}
                             ],
                             "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                         },
                         "severity": {
                             "oneOf": [
-                                {"type": "string", "enum": ALLOWED_SEVERITIES},
-                                {"type": "array", "items": {"type": "string", "enum": ALLOWED_SEVERITIES}}
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}}
                             ],
                             "description": "Filter by severity(ies). Allowed: critical, warning, info"
                         },
@@ -346,22 +346,22 @@ class EventsModule(BaseModule):
                             },
                             "event_type": {
                                 "oneOf": [
-                                    {"type": "string", "enum": ALLOWED_ENGINES},
-                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINES}}
+                                    {"type": "string"},
+                                    {"type": "array", "items": {"type": "string"}}
                                 ],
-                                "description": "Filter by engine(s). Allowed: " + ", ".join(ALLOWED_ENGINES)
+                                "description": "Filter by engine(s). Use get_event_types to see allowed values"
                             },
                             "engine_group": {
                                 "oneOf": [
-                                    {"type": "string", "enum": ALLOWED_ENGINE_GROUPS},
-                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_ENGINE_GROUPS}}
+                                    {"type": "string"},
+                                    {"type": "array", "items": {"type": "string"}}
                                 ],
                                 "description": "Filter by engine group(s). Allowed: epp, edr, ecp, xm"
                             },
                             "severity": {
                                 "oneOf": [
-                                    {"type": "string", "enum": ALLOWED_SEVERITIES},
-                                    {"type": "array", "items": {"type": "string", "enum": ALLOWED_SEVERITIES}}
+                                    {"type": "string"},
+                                    {"type": "array", "items": {"type": "string"}}
                                 ],
                                 "description": "Filter by severity(ies). Allowed: critical, warning, info"
                             },
