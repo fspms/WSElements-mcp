@@ -68,9 +68,17 @@ class WithSecureAuth:
         if not self._client:
             raise RuntimeError("HTTP client not initialized")
         
+        # Determine scope based on configuration
+        if self.config.api_scope == "read_only":
+            scope = "connect.api.read"
+        elif self.config.api_scope == "read_write":
+            scope = "connect.api.read connect.api.write"
+        else:
+            raise ValueError(f"Invalid API scope: {self.config.api_scope}. Must be 'read_only' or 'read_write'")
+        
         auth_data = {
             "grant_type": "client_credentials",
-            "scope": "connect.api.read connect.api.write"
+            "scope": scope
         }
         
         response = await self._client.post(

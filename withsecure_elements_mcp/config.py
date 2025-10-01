@@ -24,6 +24,10 @@ class WithSecureConfig(BaseModel):
         default="WithSecure-Elements-MCP/0.1.0",
         description="User-Agent for API requests"
     )
+    api_scope: str = Field(
+        default="read_write",
+        description="API access scope: 'read_only' for read-only access, 'read_write' for full access"
+    )
 
 
 class MCPConfig(BaseModel):
@@ -46,7 +50,8 @@ def load_config() -> tuple[WithSecureConfig, MCPConfig]:
         client_secret=os.getenv("WITHSECURE_CLIENT_SECRET", ""),
         base_url=os.getenv("WITHSECURE_BASE_URL", "https://api.connect.withsecure.com"),
         organization_id=os.getenv("WITHSECURE_ORGANIZATION_ID"),
-        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.0")
+        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.0"),
+        api_scope=os.getenv("WITHSECURE_API_SCOPE", "read_write")
     )
     
     # MCP configuration
