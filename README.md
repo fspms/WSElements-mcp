@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 - **Organizations** : Manage organization information
 - **Devices** : Monitor and perform actions on devices
 - **Response Actions** : Execute security response actions on devices
+- **Software Updates** : Install software updates and manage missing updates on devices
 - **OAuth2 Authentication** : Secure integration with WithSecure Elements API
 
 ## Prerequisites
@@ -135,13 +136,14 @@ WITHSECURE_API_SCOPE=read_only
 
 ### Module Configuration
 
-The server supports 5 main modules that can be enabled/disabled:
+The server supports 6 main modules that can be enabled/disabled:
 
 - **`incidents`** : Broad Context Detections (BCDs) management
 - **`events`** : Security events analysis and monitoring
 - **`organizations`** : Organization information and settings
 - **`devices`** : Device monitoring and management
 - **`response_actions`** : Security response actions execution
+- **`software_updates`** : Software updates installation and management
 
 ## Usage
 
