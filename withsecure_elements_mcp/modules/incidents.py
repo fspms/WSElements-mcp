@@ -259,6 +259,40 @@ class IncidentsModule(BaseModule):
                     },
                     "required": ["incident_id"]
                 }
+            },
+            {
+                "name": "get_incident_updates",
+                "description": "Retrieve a list of updates for a specific incident. Updates represent changes made to an incident over time, including status changes, assignments, detections, and other modifications.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "incident_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the incident"
+                        },
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Organization ID (optional, defaults to authenticated client's organization)"
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["capabilityNeeds", "categories", "closeElevationMessage", "comment", "detection", "elevateIncidentMessage", "elevationMessage", "merge", "patch", "responseAction", "risk", "threatInvestigationResult", "threatValidationResult"],
+                            "description": "Filter updates by type (optional)"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of updates to return (1-100, default: 50)",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 50
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor for retrieving the next set of results"
+                        }
+                    },
+                    "required": ["incident_id"]
+                }
             }
         ])
         
@@ -595,6 +629,43 @@ class IncidentsModule(BaseModule):
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
+    async def _get_incident_updates(self, incident_id: str, organization_id: Optional[str] = None,
+                                   update_type: Optional[str] = None, limit: int = 50, 
+                                   anchor: Optional[str] = None) -> str:
+        """Retrieve updates for a specific incident."""
+        import json
+        
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+        
+        headers = await self.auth.get_headers()
+        params = {
+            "incidentId": incident_id,
+            "limit": limit
+        }
+        
+        if organization_id:
+            params["organizationId"] = organization_id
+        elif self.config.organization_id:
+            params["organizationId"] = self.config.organization_id
+        
+        if update_type:
+            params["type"] = update_type
+        
+        if anchor:
+            params["anchor"] = anchor
+        
+        response = await self.auth._client.get(
+            "/incidents/v1/updates",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error retrieving incident updates: {response.status_code} - {response.text}")
+        
+        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+    
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
@@ -683,6 +754,22 @@ class IncidentsModule(BaseModule):
                         {
                             "type": "text",
                             "text": detections
+                        }
+                    ]
+                }
+            
+            elif tool_name == "get_incident_updates":
+                incident_id = arguments["incident_id"]
+                organization_id = arguments.get("organization_id")
+                update_type = arguments.get("type")
+                limit = arguments.get("limit", 50)
+                anchor = arguments.get("anchor")
+                updates = await self._get_incident_updates(incident_id, organization_id, update_type, limit, anchor)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": updates
                         }
                     ]
                 }

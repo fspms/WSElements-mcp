@@ -320,6 +320,11 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 - Retrieve incident details
 - Archive/unarchive incidents
 - Update incident status
+- **Get incident updates**: Retrieve updates for a specific incident
+  - Track changes over time (status changes, assignments, detections, etc.)
+  - Filter by update type (patch, comment, detection, merge, etc.)
+  - Supports pagination
+  - Limit 1-100 updates per request (default: 50)
 
 ### Security Events
 - List security events
