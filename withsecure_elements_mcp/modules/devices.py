@@ -333,6 +333,28 @@ class DevicesModule(BaseModule):
                     "required": ["device_ids"]
                 }
             },
+            {
+                "name": "restart_system",
+                "description": "Restart specified devices (Windows computers only). A message can be displayed to the user before the restart.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Array of device IDs to restart (1-5 devices, Windows computers only). Example: [\"34b8cd7a-7cff-4868-a238-4c8754909945\"]",
+                            "minItems": 1,
+                            "maxItems": 5
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Optional message to display on the remote host before the device is restarted (max 512 characters)",
+                            "maxLength": 512
+                        }
+                    },
+                    "required": ["device_ids"]
+                }
+            },
         ])
         
         @self.server.list_tools()
@@ -932,6 +954,56 @@ class DevicesModule(BaseModule):
                 "error": response.text
             }, indent=2)
     
+    async def _restart_system(self, device_ids: List[str], message: Optional[str] = None) -> str:
+        """Restart specified devices (Windows computers only)."""
+        headers = await self.auth.get_headers()
+        
+        # Build request body
+        request_body = {
+            "operation": "restartSystem",
+            "targets": device_ids
+        }
+        
+        # Add message parameter if provided
+        if message:
+            request_body["parameters"] = {
+                "message": message
+            }
+        
+        # Make API request
+        response = await self.auth._client.post(
+            "/devices/v1/operations",
+            headers=headers,
+            json=request_body
+        )
+        
+        if response.status_code == 207:
+            # Multi-status response
+            data = response.json()
+            results = []
+            
+            for item in data.get("multistatus", []):
+                result = {
+                    "target": item.get("target"),
+                    "status": item.get("status"),
+                    "details": item.get("details"),
+                    "operation_id": item.get("operationId")
+                }
+                results.append(result)
+            
+            return json.dumps({
+                "success": True,
+                "message": f"System restart triggered on {len(device_ids)} device(s)",
+                "results": results,
+                "transaction_id": data.get("transactionId")
+            }, indent=2)
+        else:
+            return json.dumps({
+                "success": False,
+                "message": f"Failed to trigger system restart: {response.status_code}",
+                "error": response.text
+            }, indent=2)
+    
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
@@ -1082,6 +1154,19 @@ class DevicesModule(BaseModule):
             elif tool_name == "send_full_status":
                 device_ids = arguments["device_ids"]
                 result = await self._send_full_status(device_ids)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            
+            elif tool_name == "restart_system":
+                device_ids = arguments["device_ids"]
+                message = arguments.get("message")
+                result = await self._restart_system(device_ids, message)
                 return {
                     "content": [
                         {
