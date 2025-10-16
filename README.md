@@ -334,6 +334,9 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 - List devices
 - Retrieve device details
 - Perform actions on devices
+- **Send full status**: Request complete status information from devices
+  - Force devices to send their complete status to the server
+  - Supports 1-5 devices per operation
 
 ### Response Actions
 - List response actions responses
