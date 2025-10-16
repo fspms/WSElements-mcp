@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 - **Organizations** : Manage organization information
 - **Devices** : Monitor and perform actions on devices
 - **Response Actions** : Execute security response actions on devices
+- **Software Updates** : Install software updates and manage missing updates on devices
 - **OAuth2 Authentication** : Secure integration with WithSecure Elements API
 
 ## Prerequisites
@@ -59,7 +60,7 @@ services:
       - WITHSECURE_ORGANIZATION_ID=your_organization_id
       - MCP_DEBUG=false
       - MCP_LOG_LEVEL=INFO
-      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
+      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     healthcheck:
@@ -105,7 +106,7 @@ WITHSECURE_API_SCOPE=read_write
 # MCP Server Configuration
 MCP_DEBUG=false
 MCP_LOG_LEVEL=INFO
-WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
+WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
 ```
 
 ### Available Environments
@@ -135,13 +136,14 @@ WITHSECURE_API_SCOPE=read_only
 
 ### Module Configuration
 
-The server supports 5 main modules that can be enabled/disabled:
+The server supports 7 main modules that can be enabled/disabled:
 
 - **`incidents`** : Broad Context Detections (BCDs) management
 - **`events`** : Security events analysis and monitoring
 - **`organizations`** : Organization information and settings
 - **`devices`** : Device monitoring and management
 - **`response_actions`** : Security response actions execution
+- **`software_updates`** : Software updates installation, management, and scanning
 
 ## Usage
 
@@ -189,7 +191,7 @@ withsecure-elements-mcp --modules incidents
 
 ```bash
 # Export environment variable
-export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions
+export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
 withsecure-elements-mcp
 ```
 
@@ -206,7 +208,7 @@ from withsecure_elements_mcp.server import WithSecureElementsMCPServer
 server = WithSecureElementsMCPServer(
     base_url="https://api.connect.withsecure.com",
     debug=True,
-    enabled_modules=["incidents", "events", "organizations", "devices", "response_actions"]
+    enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates"]
 )
 
 # Run with stdio transport (default)
@@ -248,7 +250,7 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
         "-e",
         "MCP_LOG_LEVEL=INFO",
         "-e",
-        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions",
+        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates",
         "ghcr.io/fspms/wselements-mcp:latest",
         "--transport",
         "streamable-http",
@@ -344,6 +346,19 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
   - **Network Isolation**: Isolate devices from network, release from isolation
   - **Agent Management**: Restart security agents
 
+### Software Updates
+- **Install software updates**: Install specific updates or updates by severity on devices
+  - Install specific bulletin IDs
+  - Install updates by severity (critical, important, everything)
+  - Force close applications during upgrade
+- **Get missing updates**: Retrieve list of missing software updates for a device
+  - Filter by severity (critical, important, moderate, low, unclassified)
+  - Filter by category (security, nonSecurity, servicePack, securityTool, none)
+  - Limit results (1-200)
+- **Scan for updates**: Trigger manual scan for software updates on devices
+  - Force devices to check for available updates
+  - Supports 1-5 devices per operation
+
 ## Examples
 
 The project includes several usage examples in the `examples/` directory:
@@ -362,7 +377,7 @@ async def main():
     # Create server with all modules enabled
     server = WithSecureElementsMCPServer(
         debug=True,
-        enabled_modules=["incidents", "events", "organizations", "devices", "response_actions"]
+        enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates"]
     )
     
     # Run with stdio transport

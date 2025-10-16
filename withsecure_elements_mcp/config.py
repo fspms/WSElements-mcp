@@ -36,7 +36,7 @@ class MCPConfig(BaseModel):
     debug: bool = Field(default=False, description="Debug mode")
     log_level: str = Field(default="INFO", description="Log level")
     enabled_modules: List[str] = Field(
-        default_factory=lambda: ["incidents", "events", "organizations", "devices", "response_actions"],
+        default_factory=lambda: ["incidents", "events", "organizations", "devices", "response_actions", "software_updates"],
         description="Enabled modules"
     )
 
@@ -55,7 +55,7 @@ def load_config() -> tuple[WithSecureConfig, MCPConfig]:
     )
     
     # MCP configuration
-    modules_str = os.getenv("WITHSECURE_MCP_MODULES", "incidents,events,organizations,devices")
+    modules_str = os.getenv("WITHSECURE_MCP_MODULES", "incidents,events,organizations,devices,response_actions,software_updates")
     enabled_modules = [m.strip() for m in modules_str.split(",") if m.strip()]
     
     mcp_config = MCPConfig(
