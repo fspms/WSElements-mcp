@@ -185,3 +185,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+# Deployment and test files
+temp-deployment-files/
