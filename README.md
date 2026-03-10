@@ -1,4 +1,4 @@
-# WithSecure Elements MCP Server
+# MCP server for WithSecure Elements
 
 An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elements for automated security analysis and threat hunting.
 
