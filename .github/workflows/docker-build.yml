@@ -42,9 +42,12 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
         flavor: |
-          latest=true
+          latest=false
 
     - name: Build and push Docker image
       id: build
@@ -52,7 +55,7 @@ jobs:
       with:
         context: .
         platforms: linux/amd64,linux/arm64
-        push: true
+        push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
@@ -60,6 +63,7 @@ jobs:
         provenance: false
 
     - name: Generate artifact attestation
+      if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@v3
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
