@@ -10,7 +10,9 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 - **Devices** : Monitor and perform actions on devices
 - **Response Actions** : Execute security response actions on devices
 - **Software Updates** : Install software updates and manage missing updates on devices
-- **OAuth2 Authentication** : Secure integration with WithSecure Elements API
+- **OAuth2 Authentication** : Secure integration with WithSecure Elements API (lazy, non-blocking startup)
+- **Safe by default** : `read_only` scope by default; destructive tools flagged with the MCP `destructiveHint`
+- **Resilient & efficient** : automatic retry/backoff on `429`/`5xx` (honoring `Retry-After`), compact JSON responses, and cursor pagination via `anchor`
 
 ## Prerequisites
 
@@ -26,7 +28,7 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 The easiest way to run the WithSecure Elements MCP Server is using Docker:
 
 ```bash
-# Pull the latest image
+# Pull the image (pin a version for reproducibility, e.g. :0.1.2)
 docker pull ghcr.io/fspms/wselements-mcp:latest
 
 # Run with environment variables
@@ -102,12 +104,22 @@ WITHSECURE_CLIENT_SECRET=your_client_secret
 WITHSECURE_BASE_URL=https://api.connect.withsecure.com
 WITHSECURE_ORGANIZATION_ID=your_organization_id
 WITHSECURE_API_SCOPE=read_only
+WITHSECURE_TIMEOUT=30
 
 # MCP Server Configuration
 MCP_DEBUG=false
 MCP_LOG_LEVEL=INFO
 WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
 ```
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WITHSECURE_CLIENT_ID` / `WITHSECURE_CLIENT_SECRET` | API credentials (required) | — |
+| `WITHSECURE_ORGANIZATION_ID` | Default organization (optional) | — |
+| `WITHSECURE_API_SCOPE` | `read_only` or `read_write` | `read_only` |
+| `WITHSECURE_TIMEOUT` | HTTP request timeout (seconds) | `30` |
+| `WITHSECURE_BASE_URL` | API endpoint | production |
+| `WITHSECURE_MCP_MODULES` | Enabled modules (CSV) | all six |
 
 ### Available Environments
 
@@ -221,6 +233,51 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 
 ## Editor/Assistant Integration
 
+### Using with Claude
+
+The package is published on PyPI, so `uvx` fetches it automatically — no clone needed.
+
+**Claude Desktop** — edit the config file
+(`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows), then restart Claude:
+
+```json
+{
+  "mcpServers": {
+    "withsecure-elements": {
+      "command": "uvx",
+      "args": ["withsecure-elements-mcp"],
+      "env": {
+        "WITHSECURE_CLIENT_ID": "your_client_id",
+        "WITHSECURE_CLIENT_SECRET": "your_client_secret",
+        "WITHSECURE_ORGANIZATION_ID": "your_organization_id",
+        "WITHSECURE_API_SCOPE": "read_only"
+      }
+    }
+  }
+}
+```
+
+**Claude Code** — one command (user scope makes it available in every project):
+
+```bash
+claude mcp add withsecure-elements -s user \
+  --env WITHSECURE_CLIENT_ID=your_client_id \
+  --env WITHSECURE_CLIENT_SECRET=your_client_secret \
+  --env WITHSECURE_ORGANIZATION_ID=your_organization_id \
+  --env WITHSECURE_API_SCOPE=read_only \
+  -- uvx withsecure-elements-mcp
+```
+
+Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
+*"Show the latest incidents"*, *"Which devices are offline?"*. Keep
+`read_only` unless you need write/response actions; destructive tools require
+`read_write` and Claude will ask for confirmation before running them.
+
+> Authentication is lazy: the server starts even if credentials are wrong or the
+> API is temporarily unreachable, so the tools always appear and you get a clear
+> error on the first call rather than a silent connection failure.
+
 ### MCP Configuration
 
 #### Using Docker
@@ -314,41 +371,43 @@ server.run("streamable-http", host="0.0.0.0", port=8080)
 ## Available Modules
 
 ### Incidents (BCDs)
-- List incidents
-- Retrieve incident details
-- Archive/unarchive incidents
-- Update incident status
+- `list_incidents` — list incidents (filters: severity, status, time range, pagination)
+- `get_incident` — retrieve a specific incident
+- `update_incident_status` — update status (`resolution` required when closing)
+- `add_incident_comment` — add a comment to one or more incidents
+- `list_incident_detections` — list detections for an incident
 
 ### Security Events
-- List security events
-- Retrieve event details
-- Filter events by criteria
+- `list_events` — list security events (filter by engine, engine group, severity, device, time range)
+- `get_event` — retrieve event details
+- `get_event_types` — list allowed engines/severities and other filter values
+- `get_event_statistics` — aggregated event statistics
 
 ### Organizations
-- Retrieve organization information
-- List accessible organizations
+- `get_current_organization` — current authenticated organization (whoami)
+- `list_organizations` — list accessible organizations
+- `get_organization` — retrieve a specific organization
 
 ### Devices
-- List devices
-- Retrieve device details
-- Perform actions on devices
-- **Send full status**: Request complete status information from devices
-  - Force devices to send their complete status to the server
-  - Supports 1-5 devices per operation
-- **Restart system**: Restart devices (Windows computers only)
-  - Optional message to display before restart
-  - Supports 1-5 devices per operation
+- `list_devices` — list devices (filters + pagination)
+- `get_device` — retrieve a specific device
+- `get_device_statistics` / `get_device_histogram` — aggregated device data
+- `get_device_operations` / `get_device_operation_status` — track remote operations
+- `show_message` / `assign_profile` — non-destructive device operations
+- `isolate_device` / `unisolate_device` / `scan_device` — network isolation and malware scan ⚠️
+- **`send_full_status`** — request complete status from devices (1-5 per operation)
+- **`restart_system`** — restart devices, Windows only, optional message (1-5 per operation) ⚠️
 
 ### Response Actions
-- List response actions responses
-- Create response actions on devices
-- Execute security actions including:
-  - **Process Management**: Kill threads, kill processes, collect process memory
-  - **Memory Analysis**: Full memory dumps, process memory collection
-  - **File Operations**: Collect files, delete files, quarantine/unquarantine files
-  - **System Control**: Run commands, restart/shutdown devices
-  - **Network Isolation**: Isolate devices from network, release from isolation
-  - **Agent Management**: Restart security agents
+- `list_response_actions_responses` — list response action responses
+- `create_response_action` — create a response action on devices. The action performed is
+  controlled by `action_type` and the WithSecure Elements API supports a wide catalog
+  (process/thread termination, memory dumps, file collection/deletion, network isolation,
+  registry/services operations, etc.) ⚠️
+
+> ⚠️ Tools marked above perform write/disruptive operations. They require
+> `WITHSECURE_API_SCOPE=read_write` and are flagged with the MCP `destructiveHint`,
+> so MCP clients (e.g. Claude) will ask for confirmation before running them.
 
 ### Software Updates
 - **Install software updates**: Install specific updates or updates by severity on devices
@@ -397,8 +456,8 @@ if __name__ == "__main__":
 
 ```bash
 # Clone the repository
-git clone https://github.com/withsecure/elements-mcp.git
-cd elements-mcp
+git clone https://github.com/fspms/WSElements-mcp.git
+cd WSElements-mcp
 
 # Create virtual environment and install dependencies
 uv sync --all-extras

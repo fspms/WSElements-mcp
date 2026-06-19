@@ -189,13 +189,13 @@ docker pull withsecure-elements-mcp:latest
 
 #### GitHub Issues
 
-- [Create an issue](https://github.com/withsecure/elements-mcp/issues)
+- [Create an issue](https://github.com/fspms/WSElements-mcp/issues)
 - Search existing issues
 - Provide detailed information about the problem
 
 #### Discussions
 
-- [GitHub Discussions](https://github.com/withsecure/elements-mcp/discussions)
+- [GitHub Discussions](https://github.com/fspms/WSElements-mcp/discussions)
 - General questions and suggestions
 - Experience sharing
 
@@ -237,7 +237,7 @@ For commercial support or questions about WithSecure Elements API:
 ### Version Information
 
 - **Current version**: 0.1.2
-- **Python**: 3.8+
+- **Python**: 3.10+
 - **Dependencies**: See `pyproject.toml`
 - **License**: MIT
 

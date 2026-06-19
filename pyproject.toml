@@ -45,10 +45,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/withsecure/elements-mcp"
-Repository = "https://github.com/withsecure/elements-mcp"
-Documentation = "https://github.com/withsecure/elements-mcp#readme"
-"Bug Tracker" = "https://github.com/withsecure/elements-mcp/issues"
+Homepage = "https://github.com/fspms/WSElements-mcp"
+Repository = "https://github.com/fspms/WSElements-mcp"
+Documentation = "https://github.com/fspms/WSElements-mcp#readme"
+"Bug Tracker" = "https://github.com/fspms/WSElements-mcp/issues"
 
 [project.scripts]
 withsecure-elements-mcp = "withsecure_elements_mcp.server:main"

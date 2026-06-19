@@ -14,8 +14,8 @@ This guide explains how to contribute to the development of the WithSecure Eleme
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/withsecure/elements-mcp.git
-   cd elements-mcp
+   git clone https://github.com/fspms/WSElements-mcp.git
+   cd WSElements-mcp
    ```
 
 2. **Create virtual environment**
