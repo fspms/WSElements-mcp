@@ -145,6 +145,10 @@ class IncidentsModule(BaseModule):
                             "type": "string",
                             "format": "date-time",
                             "description": "End of creation time range"
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
                         }
                     }
                 }
@@ -388,7 +392,7 @@ class IncidentsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving incidents: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_incident(self, incident_id: str) -> str:
         """Retrieve details of a specific incident."""
@@ -412,7 +416,7 @@ class IncidentsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving incident: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _update_incident_status(self, incident_id: str, status: str, resolution: Optional[str] = None) -> str:
         """Update incident (BCD) status via PATCH /incidents/v1/incidents.
@@ -451,7 +455,7 @@ class IncidentsModule(BaseModule):
             body = response.json()
         except Exception:
             body = {"success": True, "message": f"Incident {incident_id} status updated to {status}"}
-        return json.dumps(body, indent=2, ensure_ascii=False)
+        return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
 
     async def _add_incident_comment(self, targets: List[str], comment: str) -> str:
         """Add comment to incidents."""
@@ -510,7 +514,7 @@ class IncidentsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving detections: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read an incident resource."""

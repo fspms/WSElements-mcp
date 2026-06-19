@@ -41,7 +41,7 @@ class WithSecureElementsMCPServer:
         self._setup_logging()
         
         # MCP server initialization
-        self.server = Server("withsecure-elements-mcp", version="0.1.1")
+        self.server = Server("withsecure-elements-mcp", version="0.1.2")
         self.auth = None
         self.modules = []
     
@@ -97,6 +97,30 @@ class WithSecureElementsMCPServer:
             return [TextContent(type="text", text=result)]
         return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
 
+    # Tools that perform disruptive/destructive actions on endpoints. Used to
+    # set the MCP destructiveHint so clients (e.g. Claude) can warn/confirm.
+    _DESTRUCTIVE_TOOLS = {
+        "isolate_device",
+        "restart_system",
+        "scan_device",
+        "install_software_updates",
+        "create_response_action",
+    }
+
+    @classmethod
+    def _annotations_for(cls, name: str) -> Optional[Dict[str, Any]]:
+        """Derive MCP tool annotations from the tool name.
+
+        Read tools (list_*/get_*) are flagged read-only; known disruptive tools
+        are flagged destructive so clients can prompt for confirmation.
+        """
+        annotations: Dict[str, Any] = {}
+        if name.startswith(("list_", "get_")):
+            annotations["readOnlyHint"] = True
+        if name in cls._DESTRUCTIVE_TOOLS:
+            annotations["destructiveHint"] = True
+        return annotations or None
+
     def _register_central_handlers(self) -> None:
         """Register MCP handlers that aggregate every enabled module.
 
@@ -124,6 +148,8 @@ class WithSecureElementsMCPServer:
                             inputSchema=tool.get(
                                 "inputSchema", {"type": "object", "properties": {}}
                             ),
+                            annotations=tool.get("annotations")
+                            or self._annotations_for(name),
                         )
                     )
             return tools
@@ -180,14 +206,18 @@ class WithSecureElementsMCPServer:
             async with WithSecureAuth(self.withsecure_config) as auth:
                 self.auth = auth
                 
-                # Test authentication
+                # Probe authentication, but do NOT fail startup on error: the
+                # server must still come up so the client can list tools and get
+                # a clear error on first call. Tokens are fetched lazily per call.
                 try:
                     await auth.get_token()
                     self.logger.info("Authentication successful")
                 except Exception as e:
-                    self.logger.error(f"Authentication failed: {e}")
-                    raise
-                
+                    self.logger.warning(
+                        f"Initial authentication probe failed ({e}); the server will "
+                        f"start anyway and retry authentication on the first tool call."
+                    )
+
                 # Initialize modules
                 await self._initialize_modules()
 
@@ -273,7 +303,7 @@ class WithSecureElementsMCPServer:
                                         },
                                         "serverInfo": {
                                             "name": "withsecure-elements-mcp",
-                                            "version": "0.1.1"
+                                            "version": "0.1.2"
                                         }
                                     }
                                 })

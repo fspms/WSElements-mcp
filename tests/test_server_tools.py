@@ -59,6 +59,20 @@ async def test_tool_input_schemas_are_valid():
 
 
 @pytest.mark.asyncio
+async def test_tool_annotations():
+    """Read tools are read-only; disruptive tools are flagged destructive."""
+    server = await _build_server()
+    handler = server.server.request_handlers[t.ListToolsRequest]
+    result = await handler(t.ListToolsRequest(method="tools/list"))
+    by_name = {tool.name: tool for tool in result.root.tools}
+
+    assert by_name["list_devices"].annotations.readOnlyHint is True
+    assert by_name["get_incident"].annotations.readOnlyHint is True
+    for destructive in ("isolate_device", "restart_system", "scan_device"):
+        assert by_name[destructive].annotations.destructiveHint is True
+
+
+@pytest.mark.asyncio
 async def test_unknown_tool_returns_error():
     """Calling an unknown tool yields an error result rather than crashing."""
     server = await _build_server()

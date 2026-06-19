@@ -263,6 +263,10 @@ class EventsModule(BaseModule):
                             "type": "string",
                             "format": "date-time",
                             "description": "End of persistence time range (persistenceTimestampEnd)"
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
                         }
                     }
                 }
@@ -525,7 +529,7 @@ class EventsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving events: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_event(self, event_id: str) -> str:
         """Retrieve details of a specific event."""
@@ -562,7 +566,7 @@ class EventsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving event: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_event_types(self) -> str:
         """Retrieve list of available event types and all allowed values."""
@@ -582,7 +586,7 @@ class EventsModule(BaseModule):
             },
             "engineGroupMapping": ENGINE_TO_GROUP_MAPPING,
             "note": "Toutes les valeurs autorisées extraites des spécifications API officielles"
-        }, indent=2, ensure_ascii=False)
+        }, ensure_ascii=False, separators=(",", ":"))
 
     
     async def _get_event_statistics(self, filters: Dict[str, Any]) -> str:
@@ -623,7 +627,7 @@ class EventsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving statistics: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read an event resource."""

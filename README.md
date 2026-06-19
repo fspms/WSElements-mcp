@@ -101,7 +101,7 @@ WITHSECURE_CLIENT_ID=your_client_id
 WITHSECURE_CLIENT_SECRET=your_client_secret
 WITHSECURE_BASE_URL=https://api.connect.withsecure.com
 WITHSECURE_ORGANIZATION_ID=your_organization_id
-WITHSECURE_API_SCOPE=read_write
+WITHSECURE_API_SCOPE=read_only
 
 # MCP Server Configuration
 MCP_DEBUG=false
@@ -119,15 +119,13 @@ WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,s
 
 The `WITHSECURE_API_SCOPE` environment variable controls the level of access to the WithSecure Elements API:
 
-- **`read_only`** : Read-only access only (scope: `connect.api.read`)
-  - Use this option if your WithSecure client is configured for read-only access
-  - Allows data retrieval but not modification
+- **`read_only`** : Read-only access only (scope: `connect.api.read`) — **default**
+  - Allows data retrieval but not modification (least privilege)
   - Resolves the "Scope not allowed for the client" error for read-only clients
 
 - **`read_write`** : Full read and write access (scopes: `connect.api.read connect.api.write`)
-  - Use this option if your WithSecure client has full access
-  - Allows all read and write operations
-  - Default option
+  - Required for write/response actions (isolate, scan, restart, install updates, response actions)
+  - Use only if your WithSecure client has full access
 
 **Example configuration for a read-only client:**
 ```env

@@ -18,7 +18,7 @@ def test_withsecure_config_defaults():
     assert config.client_secret == "test_secret"
     assert config.base_url == "https://api.connect.withsecure.com"
     assert config.organization_id is None
-    assert config.user_agent == "WithSecure-Elements-MCP/0.1.1"
+    assert config.user_agent == "WithSecure-Elements-MCP/0.1.2"
 
 
 def test_mcp_config_defaults():

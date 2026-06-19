@@ -98,6 +98,10 @@ class OrganizationsModule(BaseModule):
                             "type": "integer",
                             "description": "Maximum number of organizations to return",
                             "default": 100
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
                         }
                     }
                 }
@@ -197,18 +201,20 @@ class OrganizationsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving user information: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
-    async def _get_organizations(self, limit: int = 100) -> str:
+    async def _get_organizations(self, limit: int = 100, anchor: Optional[str] = None) -> str:
         """Retrieve organizations list."""
         import json
-        
+
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
         params = {"limit": limit}
-        
+        if anchor:
+            params["anchor"] = anchor
+
         response = await self.auth._client.get(
             "/organizations/v1/organizations",
             headers=headers,
@@ -218,7 +224,7 @@ class OrganizationsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving organizations: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_organization(self, organization_id: str) -> str:
         """Retrieve a specific organization.
@@ -243,7 +249,7 @@ class OrganizationsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving organization: {response.status_code} - {response.text}")
 
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
 
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read an organization resource."""
@@ -272,7 +278,8 @@ class OrganizationsModule(BaseModule):
             
             elif tool_name == "list_organizations":
                 limit = arguments.get("limit", 100)
-                organizations = await self._get_organizations(limit)
+                anchor = arguments.get("anchor")
+                organizations = await self._get_organizations(limit, anchor)
                 return {
                     "content": [
                         {

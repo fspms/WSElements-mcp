@@ -3,12 +3,53 @@ OAuth2 authentication for WithSecure Elements API.
 """
 
 import asyncio
+import logging
 import time
 from typing import Optional
 import httpx
 from pydantic import BaseModel
 
 from .config import WithSecureConfig
+
+logger = logging.getLogger("withsecure-elements-mcp")
+
+# HTTP status codes that warrant a retry with backoff.
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+class _RetryTransport(httpx.AsyncBaseTransport):
+    """Transport wrapper that retries transient failures (429/5xx).
+
+    Honors the ``Retry-After`` header when present, otherwise uses capped
+    exponential backoff. Applied to every request made through the client.
+    """
+
+    def __init__(self, wrapped: httpx.AsyncBaseTransport, max_retries: int = 3):
+        self._wrapped = wrapped
+        self._max_retries = max_retries
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        attempt = 0
+        while True:
+            response = await self._wrapped.handle_async_request(request)
+            if response.status_code in _RETRY_STATUS and attempt < self._max_retries:
+                retry_after = response.headers.get("retry-after", "")
+                if retry_after.isdigit():
+                    delay = float(retry_after)
+                else:
+                    delay = min(2 ** attempt, 8)
+                await response.aclose()
+                logger.warning(
+                    "WithSecure API returned %s; retrying in %.1fs (attempt %d/%d)",
+                    response.status_code, delay, attempt + 1, self._max_retries,
+                )
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            return response
+
+    async def aclose(self) -> None:
+        await self._wrapped.aclose()
 
 
 class TokenResponse(BaseModel):
@@ -34,7 +75,8 @@ class WithSecureAuth:
         self._client = httpx.AsyncClient(
             base_url=self.config.base_url,
             headers={"User-Agent": self.config.user_agent},
-            timeout=30.0
+            timeout=self.config.timeout,
+            transport=_RetryTransport(httpx.AsyncHTTPTransport()),
         )
         return self
     

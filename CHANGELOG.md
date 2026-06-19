@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-06-19
+
+### Added
+- Retry with backoff on transient API errors (429/5xx), honoring `Retry-After`.
+- MCP tool annotations: read tools flagged `readOnlyHint`; `isolate_device`,
+  `restart_system`, `scan_device`, `install_software_updates` and
+  `create_response_action` flagged `destructiveHint` so clients can confirm.
+- `anchor` pagination parameter exposed in the schema of all list tools.
+- Configurable HTTP timeout via `WITHSECURE_TIMEOUT` (default 30s).
+- PyPI publishing on tag via Trusted Publishing (`pypi-publish` job).
+
+### Changed
+- **Default API scope is now `read_only`** (was `read_write`) — least privilege.
+  Set `WITHSECURE_API_SCOPE=read_write` to enable write/response actions.
+- Authentication is no longer blocking at startup: the server starts even if the
+  initial token probe fails and authenticates lazily on the first tool call, so
+  clients can always list tools and get a clear error.
+- API responses are serialized as compact JSON (no indentation) to cut token use.
+
 ## [0.1.1] - 2026-06-19
 
 ### Fixed

@@ -114,6 +114,10 @@ class DevicesModule(BaseModule):
                             "type": "string",
                             "format": "date-time",
                             "description": "End of last seen time range"
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
                         }
                     }
                 }
@@ -597,7 +601,7 @@ class DevicesModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving devices: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_device(self, device_id: str) -> str:
         """Retrieve details of a specific device.
@@ -622,7 +626,7 @@ class DevicesModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving device: {response.status_code} - {response.text}")
 
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
 
     async def _get_device_events(self, device_id: str, limit: int = 100, created_start: Optional[str] = None, created_end: Optional[str] = None) -> str:
         """Retrieve security events for a device via the security-events endpoint."""
@@ -653,7 +657,7 @@ class DevicesModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving device events: {response.status_code} - {response.text}")
 
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
 
     async def _device_operation(self, operation: str, device_id: str, parameters: Optional[Dict[str, Any]] = None) -> str:
         """Trigger a remote operation on a device via /devices/v1/operations."""
@@ -679,7 +683,7 @@ class DevicesModule(BaseModule):
         if response.status_code not in [200, 202, 207]:
             raise Exception(f"Error triggering {operation}: {response.status_code} - {response.text}")
 
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
 
     async def _isolate_device(self, device_id: str, reason: str) -> str:
         """Isolate a device from the network (operation: isolateFromNetwork)."""
@@ -803,7 +807,7 @@ class DevicesModule(BaseModule):
             raise Exception(f"Error getting operation status: {response.status_code} - {response.text}")
 
         result = response.json()
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
     
     async def _get_device_statistics(self, organization_id: str = None, count: str = None, device_type: str = None, state: str = None) -> str:
         """Get device statistics and aggregated data."""

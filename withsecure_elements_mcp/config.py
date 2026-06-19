@@ -21,12 +21,16 @@ class WithSecureConfig(BaseModel):
         description="Organization ID (optional)"
     )
     user_agent: str = Field(
-        default="WithSecure-Elements-MCP/0.1.1",
+        default="WithSecure-Elements-MCP/0.1.2",
         description="User-Agent for API requests"
     )
     api_scope: str = Field(
-        default="read_write",
+        default="read_only",
         description="API access scope: 'read_only' for read-only access, 'read_write' for full access"
+    )
+    timeout: float = Field(
+        default=30.0,
+        description="HTTP request timeout in seconds"
     )
 
 
@@ -50,8 +54,9 @@ def load_config() -> tuple[WithSecureConfig, MCPConfig]:
         client_secret=os.getenv("WITHSECURE_CLIENT_SECRET", ""),
         base_url=os.getenv("WITHSECURE_BASE_URL", "https://api.connect.withsecure.com"),
         organization_id=os.getenv("WITHSECURE_ORGANIZATION_ID"),
-        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.1"),
-        api_scope=os.getenv("WITHSECURE_API_SCOPE", "read_write")
+        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.2"),
+        api_scope=os.getenv("WITHSECURE_API_SCOPE", "read_only"),
+        timeout=float(os.getenv("WITHSECURE_TIMEOUT", "30.0"))
     )
     
     # MCP configuration

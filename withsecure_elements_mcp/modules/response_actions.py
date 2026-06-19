@@ -334,7 +334,7 @@ class ResponseActionsModule(BaseModule):
         if response.status_code != 200:
             raise Exception(f"Error retrieving response actions responses: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _create_response_action(self, action_data: ResponseActionCreate) -> str:
         """Create a new response action."""
@@ -364,7 +364,7 @@ class ResponseActionsModule(BaseModule):
         if response.status_code not in [200, 201]:
             raise Exception(f"Error creating response action: {response.status_code} - {response.text}")
         
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
     
     async def _get_response_actions(self) -> str:
         """Retrieve response actions list (placeholder)."""
