@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "withsecure-elements-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Serveur MCP pour WithSecure Elements - Connecter l'IA aux fonctionnalités de sécurité WithSecure"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "typing-extensions>=4.0.0",
     "aiohttp>=3.8.0",
+    "starlette>=0.37.0",
+    "uvicorn>=0.27.0",
 ]
 
 [project.optional-dependencies]

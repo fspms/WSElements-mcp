@@ -3,13 +3,9 @@ MCP module for WithSecure Elements organizations management.
 """
 
 from typing import Any, Dict, List, Optional
-from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
-from pydantic import BaseModel
 
 from .base import BaseModule
-from ..auth import WithSecureAuth
-from ..config import WithSecureConfig
 
 
 class OrganizationsModule(BaseModule):
@@ -161,34 +157,6 @@ class OrganizationsModule(BaseModule):
                         },
                         "required": ["organization_id"]
                     }
-                ),
-                Tool(
-                    name="get_organization_settings",
-                    description="Retrieve organization settings",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID"
-                            }
-                        },
-                        "required": ["organization_id"]
-                    }
-                ),
-                Tool(
-                    name="get_organization_statistics",
-                    description="Retrieve organization statistics",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID"
-                            }
-                        },
-                        "required": ["organization_id"]
-                    }
                 )
             ]
         
@@ -208,17 +176,7 @@ class OrganizationsModule(BaseModule):
                 organization_id = arguments["organization_id"]
                 organization = await self._get_organization(organization_id)
                 return [TextContent(type="text", text=organization)]
-            
-            elif name == "get_organization_settings":
-                organization_id = arguments["organization_id"]
-                settings = await self._get_organization_settings(organization_id)
-                return [TextContent(type="text", text=settings)]
-            
-            elif name == "get_organization_statistics":
-                organization_id = arguments["organization_id"]
-                statistics = await self._get_organization_statistics(organization_id)
-                return [TextContent(type="text", text=statistics)]
-            
+
             else:
                 raise ValueError(f"Unrecognized tool: {name}")
     
@@ -263,62 +221,41 @@ class OrganizationsModule(BaseModule):
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
     async def _get_organization(self, organization_id: str) -> str:
-        """Retrieve details of a specific organization."""
+        """Retrieve a specific organization.
+
+        The Elements API exposes a single list endpoint; a specific organization
+        is selected via the organizationId query parameter (there is no
+        /organizations/{id} sub-resource, nor settings/statistics endpoints).
+        """
         import json
-        
+
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
-        
+
         response = await self.auth._client.get(
-            f"/organizations/v1/organizations/{organization_id}",
-            headers=headers
+            "/organizations/v1/organizations",
+            headers=headers,
+            params={"organizationId": organization_id}
         )
-        
+
         if response.status_code != 200:
             raise Exception(f"Error retrieving organization: {response.status_code} - {response.text}")
-        
+
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
-    async def _get_organization_settings(self, organization_id: str) -> str:
-        """Retrieve organization settings."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.get(
-            f"/organizations/v1/organizations/{organization_id}/settings",
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving settings: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
-    async def _get_organization_statistics(self, organization_id: str) -> str:
-        """Retrieve organization statistics."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.get(
-            f"/organizations/v1/organizations/{organization_id}/statistics",
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving statistics: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
+
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read an organization resource."""
+        if uri == "withsecure://organizations":
+            return await self._get_organizations()
+        if uri == "withsecure://organizations/current":
+            return await self._get_current_organization()
+        if uri.startswith("withsecure://organizations/"):
+            org_id = uri.split("/")[-1]
+            return await self._get_organization(org_id)
+        return None
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:

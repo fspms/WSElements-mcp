@@ -5,7 +5,6 @@ Base module for WithSecure Elements MCP modules.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from mcp.server import Server
-from mcp.types import Resource, Tool
 
 from ..auth import WithSecureAuth
 from ..config import WithSecureConfig
@@ -56,4 +55,12 @@ class BaseModule(ABC):
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         # This will be implemented by subclasses
+        return None
+
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read a resource by URI. Return None if this module does not handle it.
+
+        Subclasses that expose resources override this. The central read_resource
+        handler in the server dispatches to each module until one returns a value.
+        """
         return None

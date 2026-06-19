@@ -129,7 +129,7 @@ asyncio.run(test_auth())
 ```bash
 # Test with curl
 curl -X POST \
-  -H "User-Agent: WithSecure-Elements-MCP/0.1.0" \
+  -H "User-Agent: WithSecure-Elements-MCP/0.1.1" \
   -u "your_client_id:your_client_secret" \
   -d "grant_type=client_credentials&scope=connect.api.read connect.api.write" \
   https://api.connect.withsecure.com/as/token.oauth2
@@ -236,7 +236,7 @@ For commercial support or questions about WithSecure Elements API:
 
 ### Version Information
 
-- **Current version**: 0.1.0
+- **Current version**: 0.1.1
 - **Python**: 3.8+
 - **Dependencies**: See `pyproject.toml`
 - **License**: MIT

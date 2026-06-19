@@ -21,7 +21,7 @@ class WithSecureConfig(BaseModel):
         description="Organization ID (optional)"
     )
     user_agent: str = Field(
-        default="WithSecure-Elements-MCP/0.1.0",
+        default="WithSecure-Elements-MCP/0.1.1",
         description="User-Agent for API requests"
     )
     api_scope: str = Field(
@@ -50,7 +50,7 @@ def load_config() -> tuple[WithSecureConfig, MCPConfig]:
         client_secret=os.getenv("WITHSECURE_CLIENT_SECRET", ""),
         base_url=os.getenv("WITHSECURE_BASE_URL", "https://api.connect.withsecure.com"),
         organization_id=os.getenv("WITHSECURE_ORGANIZATION_ID"),
-        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.0"),
+        user_agent=os.getenv("WITHSECURE_USER_AGENT", "WithSecure-Elements-MCP/0.1.1"),
         api_scope=os.getenv("WITHSECURE_API_SCOPE", "read_write")
     )
     

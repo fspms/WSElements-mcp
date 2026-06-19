@@ -2,14 +2,12 @@
 MCP module for WithSecure Elements devices management.
 """
 
+import json
 from typing import Any, Dict, List, Optional
-from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
-from ..auth import WithSecureAuth
-from ..config import WithSecureConfig
 
 
 class DeviceFilters(BaseModel):
@@ -602,142 +600,100 @@ class DevicesModule(BaseModule):
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
     async def _get_device(self, device_id: str) -> str:
-        """Retrieve details of a specific device."""
-        import json
-        
+        """Retrieve details of a specific device.
+
+        The Elements API has no /devices/{id} sub-resource; a single device is
+        fetched from the list endpoint filtered by the deviceId query parameter.
+        """
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
-        
+        params = {"deviceId": device_id}
+        if self.config.organization_id:
+            params["organizationId"] = self.config.organization_id
+
         response = await self.auth._client.get(
-            f"/devices/v1/devices/{device_id}",
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving device: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
-    async def _get_device_events(self, device_id: str, limit: int = 100, created_start: Optional[str] = None, created_end: Optional[str] = None) -> str:
-        """Retrieve device events."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        params = {
-            "deviceId": device_id,
-            "limit": limit
-        }
-        
-        if created_start:
-            params["createdTimestampStart"] = created_start
-        if created_end:
-            params["createdTimestampEnd"] = created_end
-        
-        response = await self.auth._client.get(
-            "/events/v1/events",
+            "/devices/v1/devices",
             headers=headers,
             params=params
         )
-        
+
+        if response.status_code != 200:
+            raise Exception(f"Error retrieving device: {response.status_code} - {response.text}")
+
+        return json.dumps(response.json(), indent=2, ensure_ascii=False)
+
+    async def _get_device_events(self, device_id: str, limit: int = 100, created_start: Optional[str] = None, created_end: Optional[str] = None) -> str:
+        """Retrieve security events for a device via the security-events endpoint."""
+        if not self.auth._client:
+            raise RuntimeError("HTTP client not initialized")
+
+        headers = await self.auth.get_headers()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Accept"] = "application/json"
+        params = {
+            "targetId": device_id,
+            "limit": limit,
+            "engineGroup": "epp",
+        }
+        if self.config.organization_id:
+            params["organizationId"] = self.config.organization_id
+        if created_start:
+            params["persistenceTimestampStart"] = created_start
+        if created_end:
+            params["persistenceTimestampEnd"] = created_end
+
+        response = await self.auth._client.post(
+            "/security-events/v1/security-events",
+            headers=headers,
+            data=params
+        )
+
         if response.status_code != 200:
             raise Exception(f"Error retrieving device events: {response.status_code} - {response.text}")
-        
+
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
-    async def _get_device_statistics(self, device_id: str) -> str:
-        """Retrieve device statistics."""
-        import json
-        
+
+    async def _device_operation(self, operation: str, device_id: str, parameters: Optional[Dict[str, Any]] = None) -> str:
+        """Trigger a remote operation on a device via /devices/v1/operations."""
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.get(
-            f"/devices/v1/devices/{device_id}/statistics",
-            headers=headers
+        headers["Content-Type"] = "application/json"
+
+        data: Dict[str, Any] = {
+            "operation": operation,
+            "targets": [device_id],
+        }
+        if parameters:
+            data["parameters"] = parameters
+
+        response = await self.auth._client.post(
+            "/devices/v1/operations",
+            headers=headers,
+            json=data
         )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving statistics: {response.status_code} - {response.text}")
-        
+
+        if response.status_code not in [200, 202, 207]:
+            raise Exception(f"Error triggering {operation}: {response.status_code} - {response.text}")
+
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
-    
+
     async def _isolate_device(self, device_id: str, reason: str) -> str:
-        """Isolate a device from the network."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Content-Type"] = "application/json"
-        
-        data = {
-            "deviceId": device_id,
-            "reason": reason
-        }
-        
-        response = await self.auth._client.post(
-            f"/devices/v1/devices/{device_id}/isolate",
-            headers=headers,
-            json=data
+        """Isolate a device from the network (operation: isolateFromNetwork)."""
+        return await self._device_operation(
+            "isolateFromNetwork", device_id, {"message": reason} if reason else None
         )
-        
-        if response.status_code not in [200, 202]:
-            raise Exception(f"Error isolating device: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"Device {device_id} isolated"})
-    
+
     async def _unisolate_device(self, device_id: str) -> str:
-        """Unisolate a device from the network."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.post(
-            f"/devices/v1/devices/{device_id}/unisolate",
-            headers=headers
-        )
-        
-        if response.status_code not in [200, 202]:
-            raise Exception(f"Error unisolating device: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"Device {device_id} unisolated"})
-    
+        """Release a device from network isolation (operation: releaseFromNetworkIsolation)."""
+        return await self._device_operation("releaseFromNetworkIsolation", device_id)
+
     async def _scan_device(self, device_id: str, scan_type: str) -> str:
-        """Launch a scan on a device."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Content-Type"] = "application/json"
-        
-        data = {
-            "deviceId": device_id,
-            "scanType": scan_type
-        }
-        
-        response = await self.auth._client.post(
-            f"/devices/v1/devices/{device_id}/scan",
-            headers=headers,
-            json=data
-        )
-        
-        if response.status_code not in [200, 202]:
-            raise Exception(f"Error launching scan: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"{scan_type} scan launched on device {device_id}"})
+        """Launch a malware scan on a device (operation: scanForMalware)."""
+        return await self._device_operation("scanForMalware", device_id)
     
     async def _show_message(self, device_id: str, message: str) -> str:
         """Show message to device user."""
@@ -828,25 +784,26 @@ class DevicesModule(BaseModule):
         return json.dumps(result)
     
     async def _get_device_operation_status(self, device_id: str, operation_id: str) -> str:
-        """Get specific device operation status."""
-        import json
-        
+        """Get a specific device operation status from /devices/v1/operations."""
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
-        
+        params = {"deviceId": device_id}
+        if operation_id:
+            params["operationId"] = operation_id
+
         response = await self.auth._client.get(
-            f"/devices/v1/devices/operations/{operation_id}",
+            "/devices/v1/operations",
             headers=headers,
-            params={"deviceId": device_id}
+            params=params
         )
-        
+
         if response.status_code != 200:
             raise Exception(f"Error getting operation status: {response.status_code} - {response.text}")
-        
+
         result = response.json()
-        return json.dumps(result)
+        return json.dumps(result, indent=2, ensure_ascii=False)
     
     async def _get_device_statistics(self, organization_id: str = None, count: str = None, device_type: str = None, state: str = None) -> str:
         """Get device statistics and aggregated data."""
@@ -1004,6 +961,15 @@ class DevicesModule(BaseModule):
                 "error": response.text
             }, indent=2)
     
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read a device resource."""
+        if uri == "withsecure://devices":
+            return await self._get_devices()
+        if uri.startswith("withsecure://devices/"):
+            device_id = uri.split("/")[-1]
+            return await self._get_device(device_id)
+        return None
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:

@@ -18,7 +18,7 @@ def test_withsecure_config_defaults():
     assert config.client_secret == "test_secret"
     assert config.base_url == "https://api.connect.withsecure.com"
     assert config.organization_id is None
-    assert config.user_agent == "WithSecure-Elements-MCP/0.1.0"
+    assert config.user_agent == "WithSecure-Elements-MCP/0.1.1"
 
 
 def test_mcp_config_defaults():
@@ -27,7 +27,14 @@ def test_mcp_config_defaults():
     
     assert config.debug is False
     assert config.log_level == "INFO"
-    assert config.enabled_modules == ["incidents", "events", "organizations", "devices"]
+    assert config.enabled_modules == [
+        "incidents",
+        "events",
+        "organizations",
+        "devices",
+        "response_actions",
+        "software_updates",
+    ]
 
 
 def test_load_config_from_env():

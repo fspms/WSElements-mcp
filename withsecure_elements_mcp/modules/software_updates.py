@@ -163,7 +163,7 @@ class SoftwareUpdatesModule(BaseModule):
         elif name == "scan_for_updates":
             return await self._scan_for_updates(arguments)
         else:
-            raise ValueError(f"Unknown tool: {name}")
+            return None
     
     async def _install_software_updates(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Install software updates on specified devices."""
@@ -306,7 +306,6 @@ class SoftwareUpdatesModule(BaseModule):
                 updates.append(update)
             
             # Format the response as text for better AI understanding
-            import json
             summary = {
                 "total": len(updates),
                 "critical": len([u for u in updates if u.get("severity") == "critical"]),
@@ -317,17 +316,20 @@ class SoftwareUpdatesModule(BaseModule):
             response_text = f"Found {len(updates)} missing software update(s) for device {device_id}\n\n"
             response_text += f"Device ID: {device_id}\n"
             response_text += f"Summary: {summary['total']} total ({summary['critical']} critical, {summary['important']} important, {summary['security']} security)\n\n"
-            response_text += "Updates:\n"
-            for update in updates:
-                response_text += f"- {update['bulletin_id']}: {update['severity']} / {update['category']}\n"
-            response_text += f"\n---\n"
-            response_text += f"To install an update, call install_software_updates with:\n"
-            response_text += f"  device_ids: [\"{device_id}\"]\n"
-            response_text += f"  bulletin_ids: [\"<BULLETIN_ID>\"]\n"
-            response_text += f"\nExample for the first update:\n"
-            response_text += f"  device_ids: [\"{device_id}\"]\n"
-            response_text += f"  bulletin_ids: [\"{updates[0]['bulletin_id']}\"]\n"
-            response_text += f"\nCRITICAL: Both parameters must be ARRAYS, not strings!"
+            if updates:
+                response_text += "Updates:\n"
+                for update in updates:
+                    response_text += f"- {update['bulletin_id']}: {update['severity']} / {update['category']}\n"
+                response_text += "\n---\n"
+                response_text += "To install an update, call install_software_updates with:\n"
+                response_text += f"  device_ids: [\"{device_id}\"]\n"
+                response_text += "  bulletin_ids: [\"<BULLETIN_ID>\"]\n"
+                response_text += "\nExample for the first update:\n"
+                response_text += f"  device_ids: [\"{device_id}\"]\n"
+                response_text += f"  bulletin_ids: [\"{updates[0]['bulletin_id']}\"]\n"
+                response_text += "\nCRITICAL: Both parameters must be ARRAYS, not strings!"
+            else:
+                response_text += "No missing updates for this device."
             
             return {
                 "content": [

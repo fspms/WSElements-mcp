@@ -3,14 +3,16 @@ Main MCP server for WithSecure Elements.
 """
 
 import asyncio
+import json
 import logging
 import sys
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.types import Resource, TextContent, Tool
 
-from .config import load_config, WithSecureConfig, MCPConfig
+from .config import load_config
 from .auth import WithSecureAuth
 from .modules import IncidentsModule, EventsModule, OrganizationsModule, DevicesModule, ResponseActionsModule, SoftwareUpdatesModule
 
@@ -39,7 +41,7 @@ class WithSecureElementsMCPServer:
         self._setup_logging()
         
         # MCP server initialization
-        self.server = Server("withsecure-elements-mcp")
+        self.server = Server("withsecure-elements-mcp", version="0.1.1")
         self.auth = None
         self.modules = []
     
@@ -77,7 +79,92 @@ class WithSecureElementsMCPServer:
                 self.logger.info(f"Module '{module_name}' initialized")
             else:
                 self.logger.warning(f"Module '{module_name}' not recognized, ignored")
-    
+
+    @staticmethod
+    def _to_text_content(result: Any) -> List[TextContent]:
+        """Normalize a module call_tool result into MCP TextContent blocks."""
+        if isinstance(result, dict) and "content" in result:
+            blocks = result.get("content") or []
+            out = [
+                TextContent(type="text", text=b.get("text", ""))
+                for b in blocks
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            if out:
+                return out
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+        if isinstance(result, str):
+            return [TextContent(type="text", text=result)]
+        return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+    def _register_central_handlers(self) -> None:
+        """Register MCP handlers that aggregate every enabled module.
+
+        The MCP low-level Server keeps a single handler per request type, so each
+        module registering its own @server.list_tools()/call_tool() would overwrite
+        the previous one. These central handlers are registered after all modules
+        are initialized and dispatch to each module, exposing the full tool surface
+        across every transport (stdio included).
+        """
+
+        @self.server.list_tools()
+        async def _list_tools() -> List[Tool]:
+            tools: List[Tool] = []
+            seen: set = set()
+            for module in self.modules:
+                for tool in module.get_tools():
+                    name = tool["name"]
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    tools.append(
+                        Tool(
+                            name=name,
+                            description=tool.get("description", ""),
+                            inputSchema=tool.get(
+                                "inputSchema", {"type": "object", "properties": {}}
+                            ),
+                        )
+                    )
+            return tools
+
+        @self.server.call_tool()
+        async def _call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+            for module in self.modules:
+                result = await module.call_tool(name, arguments)
+                if result is not None:
+                    return self._to_text_content(result)
+            raise ValueError(f"Tool '{name}' not found")
+
+        @self.server.list_resources()
+        async def _list_resources() -> List[Resource]:
+            resources: List[Resource] = []
+            seen: set = set()
+            for module in self.modules:
+                for res in module.get_resources():
+                    uri = res["uri"]
+                    if uri in seen:
+                        continue
+                    seen.add(uri)
+                    resources.append(
+                        Resource(
+                            uri=uri,
+                            name=res["name"],
+                            description=res.get("description"),
+                            mimeType=res.get("mimeType", "application/json"),
+                        )
+                    )
+            return resources
+
+        @self.server.read_resource()
+        async def _read_resource(uri) -> str:
+            uri_str = str(uri)
+            for module in self.modules:
+                result = await module.read_resource(uri_str)
+                if result is not None:
+                    return result
+            raise ValueError(f"Unrecognized resource URI: {uri_str}")
+
     async def run(self, transport: str = "stdio", host: str = "localhost", port: int = 8000) -> None:
         """Run MCP server."""
         try:
@@ -103,7 +190,11 @@ class WithSecureElementsMCPServer:
                 
                 # Initialize modules
                 await self._initialize_modules()
-                
+
+                # Register central handlers that aggregate all modules.
+                # Done after module init so they supersede per-module handlers.
+                self._register_central_handlers()
+
                 # Transport configuration
                 if transport == "stdio":
                     self.logger.info("Starting server with stdio transport")
@@ -116,15 +207,40 @@ class WithSecureElementsMCPServer:
                 
                 elif transport == "sse":
                     self.logger.info(f"Starting server with SSE transport on {host}:{port}")
-                    from mcp.server.sse import sse_server
-                    async with sse_server(host, port) as server:
-                        await server.serve_forever()
-                
+                    from mcp.server.sse import SseServerTransport
+                    from starlette.applications import Starlette
+                    from starlette.routing import Mount, Route
+                    import uvicorn
+
+                    sse = SseServerTransport("/messages/")
+
+                    async def handle_sse(request):
+                        async with sse.connect_sse(
+                            request.scope, request.receive, request._send
+                        ) as (read_stream, write_stream):
+                            await self.server.run(
+                                read_stream,
+                                write_stream,
+                                self.server.create_initialization_options(),
+                            )
+                        from starlette.responses import Response
+                        return Response()
+
+                    app = Starlette(
+                        routes=[
+                            Route("/sse", endpoint=handle_sse),
+                            Mount("/messages/", app=sse.handle_post_message),
+                        ]
+                    )
+                    uvicorn_server = uvicorn.Server(
+                        uvicorn.Config(app, host=host, port=port, log_level="info")
+                    )
+                    await uvicorn_server.serve()
+
                 elif transport == "streamable-http":
                     self.logger.info(f"Starting server with HTTP transport on {host}:{port}")
                     # Create a proper MCP HTTP server
                     from aiohttp import web
-                    import json
                     
                     async def handle_mcp_request(request):
                         """Handle MCP requests via HTTP."""
@@ -157,7 +273,7 @@ class WithSecureElementsMCPServer:
                                         },
                                         "serverInfo": {
                                             "name": "withsecure-elements-mcp",
-                                            "version": "0.1.0"
+                                            "version": "0.1.1"
                                         }
                                     }
                                 })
@@ -186,10 +302,20 @@ class WithSecureElementsMCPServer:
                                     if hasattr(module, 'call_tool'):
                                         result = await module.call_tool(tool_name, arguments)
                                         if result is not None:
+                                            # Normalize to MCP CallToolResult shape
+                                            if isinstance(result, dict) and "content" in result:
+                                                call_result = result
+                                            else:
+                                                call_result = {
+                                                    "content": [
+                                                        c.model_dump()
+                                                        for c in self._to_text_content(result)
+                                                    ]
+                                                }
                                             return web.json_response({
                                                 "jsonrpc": "2.0",
                                                 "id": request_id,
-                                                "result": result
+                                                "result": call_result
                                             })
                                 
                                 return web.json_response({

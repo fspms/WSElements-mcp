@@ -3,7 +3,7 @@ Tests for authentication.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from withsecure_elements_mcp.auth import WithSecureAuth, TokenResponse
 from withsecure_elements_mcp.config import WithSecureConfig
 
@@ -49,32 +49,29 @@ async def test_get_token_success(auth):
         "expires_in": 3600
     }
     
-    with patch.object(auth, '_client') as mock_client:
-        mock_client.post.return_value.status_code = 200
-        mock_client.post.return_value.json.return_value = mock_response
-        
-        # Simulate client initialization
-        auth._client = mock_client
-        
-        token = await auth.get_token()
-        
-        assert token == "test_token"
-        assert auth._token == "test_token"
-        assert auth._token_expires_at is not None
+    mock_client = AsyncMock()
+    mock_post_response = MagicMock(status_code=200)
+    mock_post_response.json.return_value = mock_response
+    mock_client.post.return_value = mock_post_response
+    auth._client = mock_client
+
+    token = await auth.get_token()
+
+    assert token == "test_token"
+    assert auth._token == "test_token"
+    assert auth._token_expires_at is not None
 
 
 @pytest.mark.asyncio
 async def test_get_token_failure(auth):
     """Test token retrieval failure."""
-    with patch.object(auth, '_client') as mock_client:
-        mock_client.post.return_value.status_code = 401
-        mock_client.post.return_value.text = "Unauthorized"
-        
-        # Simulate client initialization
-        auth._client = mock_client
-        
-        with pytest.raises(Exception, match="Authentication failed"):
-            await auth.get_token()
+    mock_client = AsyncMock()
+    mock_post_response = MagicMock(status_code=401, text="Unauthorized")
+    mock_client.post.return_value = mock_post_response
+    auth._client = mock_client
+
+    with pytest.raises(Exception, match="Authentication failed"):
+        await auth.get_token()
 
 
 @pytest.mark.asyncio

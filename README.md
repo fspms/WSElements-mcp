@@ -136,7 +136,7 @@ WITHSECURE_API_SCOPE=read_only
 
 ### Module Configuration
 
-The server supports 7 main modules that can be enabled/disabled:
+The server supports 6 main modules that can be enabled/disabled:
 
 - **`incidents`** : Broad Context Detections (BCDs) management
 - **`events`** : Security events analysis and monitoring

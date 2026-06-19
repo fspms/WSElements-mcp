@@ -27,7 +27,8 @@ class WithSecureAuth:
         self._token: Optional[str] = None
         self._token_expires_at: Optional[float] = None
         self._client: Optional[httpx.AsyncClient] = None
-    
+        self._refresh_lock = asyncio.Lock()
+
     async def __aenter__(self):
         """Async context manager to initialize HTTP client."""
         self._client = httpx.AsyncClient(
@@ -51,8 +52,12 @@ class WithSecureAuth:
         """
         if self._is_token_valid():
             return self._token
-        
-        await self._refresh_token()
+
+        async with self._refresh_lock:
+            # Re-check inside the lock: another coroutine may have refreshed it.
+            if self._is_token_valid():
+                return self._token
+            await self._refresh_token()
         return self._token
     
     def _is_token_valid(self) -> bool:

@@ -2,14 +2,12 @@
 MCP module for WithSecure Elements response actions management.
 """
 
+import json
 from typing import Any, Dict, List, Optional
-from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
-from ..auth import WithSecureAuth
-from ..config import WithSecureConfig
 
 
 class ResponseActionFilters(BaseModel):
@@ -371,7 +369,17 @@ class ResponseActionsModule(BaseModule):
     async def _get_response_actions(self) -> str:
         """Retrieve response actions list (placeholder)."""
         return json.dumps({"message": "Response actions list not implemented yet"}, indent=2)
-    
+
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read a response action resource."""
+        if uri == "withsecure://response-actions":
+            return await self._get_response_actions()
+        if uri == "withsecure://response-actions/responses":
+            return await self._get_response_actions_responses(
+                ResponseActionFilters(organization_id=self.config.organization_id or "")
+            )
+        return None
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:

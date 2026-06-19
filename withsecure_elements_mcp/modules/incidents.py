@@ -3,13 +3,10 @@ MCP module for WithSecure Elements incidents (BCDs) management.
 """
 
 from typing import Any, Dict, List, Optional
-from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
-from ..auth import WithSecureAuth
-from ..config import WithSecureConfig
 
 
 class IncidentFilters(BaseModel):
@@ -168,7 +165,7 @@ class IncidentsModule(BaseModule):
             },
             {
                 "name": "update_incident_status",
-                "description": "Update incident status",
+                "description": "Update an incident (BCD) status. A 'resolution' is required when status is 'closed'.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -178,38 +175,16 @@ class IncidentsModule(BaseModule):
                         },
                         "status": {
                             "type": "string",
+                            "enum": ["new", "acknowledged", "inProgress", "monitoring", "closed", "waitingForCustomer"],
                             "description": "New incident status"
+                        },
+                        "resolution": {
+                            "type": "string",
+                            "enum": ["unconfirmed", "incident", "falsePositive", "merged", "autoUnconfirmed", "autoFalsePositive", "securityTest", "acceptedRisk", "acceptedBehavior", "inconclusive", "confirmed"],
+                            "description": "Resolution, required when status is 'closed'"
                         }
                     },
                     "required": ["incident_id", "status"]
-                }
-            },
-            {
-                "name": "archive_incident",
-                "description": "Archive an incident",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "incident_id": {
-                            "type": "string",
-                            "description": "Incident ID"
-                        }
-                    },
-                    "required": ["incident_id"]
-                }
-            },
-            {
-                "name": "unarchive_incident",
-                "description": "Unarchive an incident",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "incident_id": {
-                            "type": "string",
-                            "description": "Incident ID"
-                        }
-                    },
-                    "required": ["incident_id"]
                 }
             },
             {
@@ -322,7 +297,7 @@ class IncidentsModule(BaseModule):
                 ),
                 Tool(
                     name="update_incident_status",
-                    description="Update incident status",
+                    description="Update an incident (BCD) status",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -333,37 +308,13 @@ class IncidentsModule(BaseModule):
                             "status": {
                                 "type": "string",
                                 "description": "New incident status"
+                            },
+                            "resolution": {
+                                "type": "string",
+                                "description": "Resolution, required when status is 'closed'"
                             }
                         },
                         "required": ["incident_id", "status"]
-                    }
-                ),
-                Tool(
-                    name="archive_incident",
-                    description="Archive an incident",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "incident_id": {
-                                "type": "string",
-                                "description": "Incident ID"
-                            }
-                        },
-                        "required": ["incident_id"]
-                    }
-                ),
-                Tool(
-                    name="unarchive_incident",
-                    description="Unarchive an incident",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "incident_id": {
-                                "type": "string",
-                                "description": "Incident ID"
-                            }
-                        },
-                        "required": ["incident_id"]
                     }
                 )
             ]
@@ -384,22 +335,13 @@ class IncidentsModule(BaseModule):
             elif name == "update_incident_status":
                 incident_id = arguments["incident_id"]
                 status = arguments["status"]
-                result = await self._update_incident_status(incident_id, status)
+                resolution = arguments.get("resolution")
+                result = await self._update_incident_status(incident_id, status, resolution)
                 return [TextContent(type="text", text=result)]
-            
-            elif name == "archive_incident":
-                incident_id = arguments["incident_id"]
-                result = await self._archive_incident(incident_id)
-                return [TextContent(type="text", text=result)]
-            
-            elif name == "unarchive_incident":
-                incident_id = arguments["incident_id"]
-                result = await self._unarchive_incident(incident_id)
-                return [TextContent(type="text", text=result)]
-            
+
             else:
                 raise ValueError(f"Unrecognized tool: {name}")
-    
+
     async def _get_incidents(self, filters: Optional[IncidentFilters] = None) -> str:
         """Retrieve incidents list."""
         import json
@@ -472,70 +414,45 @@ class IncidentsModule(BaseModule):
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
-    async def _update_incident_status(self, incident_id: str, status: str) -> str:
-        """Update incident status."""
+    async def _update_incident_status(self, incident_id: str, status: str, resolution: Optional[str] = None) -> str:
+        """Update incident (BCD) status via PATCH /incidents/v1/incidents.
+
+        The API updates status by sending the target incident id(s), the new
+        status and, when closing, a resolution in the request body.
+        """
         import json
-        
+
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
+        if status == "closed" and not resolution:
+            raise ValueError("A 'resolution' is required when setting status to 'closed'.")
+
         headers = await self.auth.get_headers()
         headers["Content-Type"] = "application/json"
-        
-        data = {
-            "incidentId": incident_id,
-            "status": status
+
+        data: Dict[str, Any] = {
+            "targets": [incident_id],
+            "status": status,
         }
-        
-        response = await self.auth._client.put(
-            f"/incidents/v1/incidents/{incident_id}/status",
+        if resolution:
+            data["resolution"] = resolution
+
+        response = await self.auth._client.patch(
+            "/incidents/v1/incidents",
             headers=headers,
             json=data
         )
-        
-        if response.status_code not in [200, 204]:
+
+        if response.status_code not in [200, 204, 207]:
             raise Exception(f"Error updating status: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"Incident {incident_id} status updated to {status}"})
-    
-    async def _archive_incident(self, incident_id: str) -> str:
-        """Archive an incident."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.post(
-            f"/incidents/v1/incidents/{incident_id}/archive",
-            headers=headers
-        )
-        
-        if response.status_code not in [200, 204]:
-            raise Exception(f"Error archiving: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"Incident {incident_id} archived"})
-    
-    async def _unarchive_incident(self, incident_id: str) -> str:
-        """Unarchive an incident."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.post(
-            f"/incidents/v1/incidents/{incident_id}/unarchive",
-            headers=headers
-        )
-        
-        if response.status_code not in [200, 204]:
-            raise Exception(f"Error unarchiving: {response.status_code} - {response.text}")
-        
-        return json.dumps({"success": True, "message": f"Incident {incident_id} unarchived"})
-    
+
+        try:
+            body = response.json()
+        except Exception:
+            body = {"success": True, "message": f"Incident {incident_id} status updated to {status}"}
+        return json.dumps(body, indent=2, ensure_ascii=False)
+
     async def _add_incident_comment(self, targets: List[str], comment: str) -> str:
         """Add comment to incidents."""
         import json
@@ -595,6 +512,18 @@ class IncidentsModule(BaseModule):
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read an incident resource."""
+        if uri == "withsecure://incidents":
+            return await self._get_incidents()
+        if uri.startswith("withsecure://incidents/") and uri not in (
+            "withsecure://incidents/comments",
+            "withsecure://incidents/detections",
+        ):
+            incident_id = uri.split("/")[-1]
+            return await self._get_incident(incident_id)
+        return None
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
@@ -625,7 +554,8 @@ class IncidentsModule(BaseModule):
             elif tool_name == "update_incident_status":
                 incident_id = arguments["incident_id"]
                 status = arguments["status"]
-                result = await self._update_incident_status(incident_id, status)
+                resolution = arguments.get("resolution")
+                result = await self._update_incident_status(incident_id, status, resolution)
                 return {
                     "content": [
                         {
@@ -634,31 +564,7 @@ class IncidentsModule(BaseModule):
                         }
                     ]
                 }
-            
-            elif tool_name == "archive_incident":
-                incident_id = arguments["incident_id"]
-                result = await self._archive_incident(incident_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
-            elif tool_name == "unarchive_incident":
-                incident_id = arguments["incident_id"]
-                result = await self._unarchive_incident(incident_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+
             elif tool_name == "add_incident_comment":
                 targets = arguments["targets"]
                 comment = arguments["comment"]

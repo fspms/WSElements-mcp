@@ -3,13 +3,10 @@ MCP module for WithSecure Elements security events management.
 """
 
 from typing import Any, Dict, List, Optional, Union
-from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
-from ..auth import WithSecureAuth
-from ..config import WithSecureConfig
 
 
 # ===== CONSTANTES DE VALIDATION DEPUIS LES SPÉCIFICATIONS API =====
@@ -505,11 +502,11 @@ class EventsModule(BaseModule):
         # Add required parameters if not provided
         if "persistenceTimestampStart" not in params and "persistenceTimestampEnd" not in params:
             # Default to last 24 hours if no time range specified
-            from datetime import datetime, timedelta
-            end_time = datetime.utcnow()
+            from datetime import datetime, timedelta, timezone
+            end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=1)
-            params["persistenceTimestampStart"] = start_time.isoformat() + "Z"
-            params["persistenceTimestampEnd"] = end_time.isoformat() + "Z"
+            params["persistenceTimestampStart"] = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            params["persistenceTimestampEnd"] = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         # Add default engine group if no engine specified
         if "engine" not in params and "engineGroup" not in params:
@@ -547,11 +544,11 @@ class EventsModule(BaseModule):
             params["organizationId"] = self.config.organization_id
             
         # Add required time range parameters
-        from datetime import datetime, timedelta
-        end_time = datetime.utcnow()
+        from datetime import datetime, timedelta, timezone
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=7)  # Search last 7 days
-        params["persistenceTimestampStart"] = start_time.isoformat() + "Z"
-        params["persistenceTimestampEnd"] = end_time.isoformat() + "Z"
+        params["persistenceTimestampStart"] = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        params["persistenceTimestampEnd"] = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         # Add default engine group
         params["engineGroup"] = "epp"
@@ -628,6 +625,15 @@ class EventsModule(BaseModule):
         
         return json.dumps(response.json(), indent=2, ensure_ascii=False)
     
+    async def read_resource(self, uri: str) -> Optional[str]:
+        """Read an event resource."""
+        if uri == "withsecure://events":
+            return await self._get_events()
+        if uri.startswith("withsecure://events/"):
+            event_id = uri.split("/")[-1]
+            return await self._get_event(event_id)
+        return None
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
         try:
