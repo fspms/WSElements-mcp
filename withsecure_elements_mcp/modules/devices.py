@@ -2,674 +2,417 @@
 MCP module for WithSecure Elements devices management.
 """
 
-import json
 from typing import Any, Dict, List, Optional
-from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
 
 
+# GET /devices/v1/devices: limit min 1, max 200 (spec default 200).
+DEVICES_LIMIT_MIN = 1
+DEVICES_LIMIT_MAX = 200
+DEVICES_LIMIT_DEFAULT = 100
+
+# POST /devices/v1/operations: 1-5 targets per request.
+OPERATION_TARGETS_MAX = 5
+OPERATION_MESSAGE_MAX_LENGTH = 512
+
+DEVICE_TYPES = ["computer", "connector", "mobile"]
+DEVICE_STATES = ["active", "blocked", "inactive"]
+PROTECTION_STATUS_OVERVIEWS = ["isolated", "inactive", "critical", "warning", "allOk"]
+PATCH_OVERALL_STATES = [
+    "missingCriticalUpdates",
+    "missingImportantUpdates",
+    "importantUpdatesInstalled",
+    "disabled",
+    "outdatedScanResults",
+    "notScannedYet",
+]
+COUNT_PROPERTIES = ["protectionStatus", "patchOverallState", "firewallState", "malwareState"]
+HISTOGRAM_PROPERTIES = ["protectionStatus"]
+
+AGGREGATION_ACCEPT = "application/vnd.withsecure.aggr+json"
+
+# PATCH /devices/v1/devices: exactly one change per request, 1-5 targets
+# (alias: a single target). DELETE: up to 20 devices.
+DEVICE_UPDATE_FIELDS = {
+    "state": "state",
+    "subscription_key": "subscriptionKey",
+    "alias": "alias",
+    "importance": "importance",
+    "business_context": "businessContext",
+    "labels": "labels",
+}
+UPDATE_STATES = ["blocked", "inactive"]
+DEVICE_IMPORTANCES = ["critical", "normal", "minor"]
+DELETE_DEVICES_MAX = 20
+
+_DEVICE_IDS_SCHEMA = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "maxItems": OPERATION_TARGETS_MAX,
+    "description": "Device IDs (1-5)"
+}
+
+
+
+def _clamp_limit(limit: Optional[int]) -> int:
+    """Clamp a page size to the API bounds."""
+    if limit is None:
+        return DEVICES_LIMIT_DEFAULT
+    return max(DEVICES_LIMIT_MIN, min(DEVICES_LIMIT_MAX, int(limit)))
+
+
 class DeviceFilters(BaseModel):
-    """Filters for device search."""
-    
+    """Filters for device search (query parameters of GET /devices/v1/devices)."""
+
     organization_id: Optional[str] = None
     device_id: Optional[str] = None
     device_name: Optional[str] = None
     device_type: Optional[str] = None
-    status: Optional[str] = None
-    last_seen_start: Optional[str] = None
-    last_seen_end: Optional[str] = None
-    limit: Optional[int] = 100
+    state: Optional[str] = None
+    online: Optional[bool] = None
+    protection_status_overview: Optional[str] = None
+    patch_overall_state: Optional[str] = None
+    label: Optional[str] = None
+    os_name: Optional[str] = None
+    serial_number: Optional[str] = None
+    public_ip_address: Optional[str] = None
+    limit: Optional[int] = DEVICES_LIMIT_DEFAULT
     anchor: Optional[str] = None
 
 
 class DevicesModule(BaseModule):
     """Module for devices management."""
-    
+
     @property
     def name(self) -> str:
         return "devices"
-    
+
     @property
     def description(self) -> str:
         return "WithSecure Elements devices management"
-    
+
     def _register_resources(self) -> None:
         """Register resources for devices."""
-        
-        # Add resources to the list for HTTP transport
         self._resources.append({
             "uri": "withsecure://devices",
             "name": "Devices",
             "description": "WithSecure Elements devices list",
             "mimeType": "application/json"
         })
-        
-        @self.server.list_resources()
-        async def list_devices() -> List[Resource]:
-            """List available device resources."""
-            return [
-                Resource(
-                    uri="withsecure://devices",
-                    name="Devices",
-                    description="WithSecure Elements devices list",
-                    mimeType="application/json"
-                )
-            ]
-        
-        @self.server.read_resource()
-        async def read_device(uri: str) -> str:
-            """Read a device resource."""
-            if uri == "withsecure://devices":
-                # Get devices list
-                devices = await self._get_devices()
-                return devices
-            elif uri.startswith("withsecure://devices/"):
-                # Get specific device
-                device_id = uri.split("/")[-1]
-                device = await self._get_device(device_id)
-                return device
-            else:
-                raise ValueError(f"Unrecognized resource URI: {uri}")
-    
+
     def _register_tools(self) -> None:
         """Register tools for devices."""
-        
-        # Add tools to the list for HTTP transport
         self._tools.extend([
             {
                 "name": "list_devices",
-                "description": "List WithSecure Elements devices",
+                "description": "List devices (filters combine with AND; deviceId overrides other filters)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "organization_id": {
-                            "type": "string",
-                            "description": "Organization ID (optional)"
-                        },
-                        "device_name": {
-                            "type": "string",
-                            "description": "Filter by device name"
-                        },
-                        "device_type": {
-                            "type": "string",
-                            "description": "Filter by device type"
-                        },
-                        "status": {
-                            "type": "string",
-                            "description": "Filter by device status"
-                        },
+                        "organization_id": {"type": "string", "description": "Organization UUID"},
+                        "device_id": {"type": "string", "description": "Device UUID"},
+                        "device_name": {"type": "string", "maxLength": 255, "description": "Device name"},
+                        "device_type": {"type": "string", "enum": DEVICE_TYPES},
+                        "state": {"type": "string", "enum": DEVICE_STATES},
+                        "online": {"type": "boolean"},
+                        "protection_status_overview": {"type": "string", "enum": PROTECTION_STATUS_OVERVIEWS},
+                        "patch_overall_state": {"type": "string", "enum": PATCH_OVERALL_STATES},
+                        "label": {"type": "string", "maxLength": 255},
+                        "os_name": {"type": "string", "maxLength": 128},
+                        "serial_number": {"type": "string", "maxLength": 128},
+                        "public_ip_address": {"type": "string", "maxLength": 45},
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of devices to return",
-                            "default": 100
-                        },
-                        "last_seen_start": {
-                            "type": "string",
-                            "format": "date-time",
-                            "description": "Start of last seen time range"
-                        },
-                        "last_seen_end": {
-                            "type": "string",
-                            "format": "date-time",
-                            "description": "End of last seen time range"
+                            "minimum": DEVICES_LIMIT_MIN,
+                            "maximum": DEVICES_LIMIT_MAX,
+                            "default": DEVICES_LIMIT_DEFAULT
                         },
                         "anchor": {
                             "type": "string",
-                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
+                            "maxLength": 512,
+                            "description": "nextAnchor from previous page"
                         }
                     }
                 }
             },
             {
                 "name": "get_device",
-                "description": "Retrieve details of a specific device",
+                "description": "Get one device by ID",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"}
                     },
                     "required": ["device_id"]
                 }
             },
             {
                 "name": "isolate_device",
-                "description": "Isolate a device from the network",
+                "description": "Isolate a computer from the network",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID"
-                        },
+                        "device_id": {"type": "string", "description": "Device UUID"},
                         "reason": {
                             "type": "string",
-                            "description": "Reason for isolation"
+                            "maxLength": OPERATION_MESSAGE_MAX_LENGTH,
+                            "description": "Message shown on the host before isolation"
                         }
                     },
-                    "required": ["device_id", "reason"]
+                    "required": ["device_id"]
                 }
             },
             {
                 "name": "unisolate_device",
-                "description": "Unisolate a device from the network",
+                "description": "Release a computer from network isolation",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"}
                     },
                     "required": ["device_id"]
                 }
             },
             {
                 "name": "scan_device",
-                "description": "Launch a scan on a device",
+                "description": "Run a malware scan on a computer or mobile",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID"
-                        },
-                        "scan_type": {
-                            "type": "string",
-                            "description": "Type of scan to perform"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"}
                     },
-                    "required": ["device_id", "scan_type"]
+                    "required": ["device_id"]
                 }
             },
             {
                 "name": "show_message",
-                "description": "Show message to device user",
+                "description": "Show a message on a computer or mobile",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID to show message to"
-                        },
-                        "message": {
-                            "type": "string",
-                            "maxLength": 512,
-                            "description": "Message to display to user"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"},
+                        "message": {"type": "string", "maxLength": OPERATION_MESSAGE_MAX_LENGTH}
                     },
                     "required": ["device_id", "message"]
                 }
             },
             {
                 "name": "assign_profile",
-                "description": "Assign profile to device",
+                "description": "Assign a profile to a device",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID to assign profile to"
-                        },
-                        "profile_id": {
-                            "type": "integer",
-                            "description": "Profile ID to assign"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"},
+                        "profile_id": {"type": "integer", "description": "Profile ID"}
                     },
                     "required": ["device_id", "profile_id"]
                 }
             },
             {
                 "name": "get_device_operations",
-                "description": "Get device operations list",
+                "description": "List remote operations triggered on a device",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID to get operations for"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 200,
-                            "default": 100,
-                            "description": "Maximum number of operations to return"
-                        },
-                        "anchor": {
-                            "type": "string",
-                            "description": "Pagination anchor for next page"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"}
                     },
                     "required": ["device_id"]
                 }
             },
             {
                 "name": "get_device_operation_status",
-                "description": "Get specific device operation status",
+                "description": "Get status of one operation on a device",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_id": {
-                            "type": "string",
-                            "description": "Device ID"
-                        },
-                        "operation_id": {
-                            "type": "string",
-                            "description": "Operation ID to check status for"
-                        }
+                        "device_id": {"type": "string", "description": "Device UUID"},
+                        "operation_id": {"type": "string", "description": "operationId from the trigger response"}
                     },
                     "required": ["device_id", "operation_id"]
                 }
             },
             {
                 "name": "get_device_statistics",
-                "description": "Get device statistics and aggregated data",
+                "description": "Count devices grouped by a property",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "organization_id": {
-                            "type": "string",
-                            "description": "Organization ID (optional)"
-                        },
-                        "count": {
-                            "type": "string",
-                            "enum": ["protectionStatus", "type", "state", "online", "label"],
-                            "description": "Property to count and group devices by"
-                        },
-                        "device_type": {
-                            "type": "string",
-                            "enum": ["computer", "mobile", "connector"],
-                            "description": "Filter by device type"
-                        },
-                        "state": {
-                            "type": "string",
-                            "enum": ["active", "blocked", "inactive"],
-                            "description": "Filter by device state"
-                        }
-                    }
+                        "count": {"type": "string", "enum": COUNT_PROPERTIES, "description": "Group-by property"},
+                        "organization_id": {"type": "string", "description": "Organization UUID"},
+                        "device_type": {"type": "string", "enum": DEVICE_TYPES},
+                        "device_name": {"type": "string", "maxLength": 255},
+                        "online": {"type": "boolean"},
+                        "label": {"type": "string", "maxLength": 255},
+                        "protection_status_overview": {"type": "string", "enum": PROTECTION_STATUS_OVERVIEWS}
+                    },
+                    "required": ["count"]
                 }
             },
             {
                 "name": "get_device_histogram",
-                "description": "Get device histogram statistics for the last 30 days",
+                "description": "Daily device counts by property over the last 30 days",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "organization_id": {
-                            "type": "string",
-                            "description": "Organization ID (optional)"
-                        },
                         "histogram": {
                             "type": "string",
-                            "enum": ["protectionStatus", "type", "state", "online"],
-                            "description": "Property to create histogram for"
+                            "enum": HISTOGRAM_PROPERTIES,
+                            "default": "protectionStatus"
                         },
-                        "device_type": {
-                            "type": "string",
-                            "enum": ["computer", "mobile", "connector"],
-                            "description": "Filter by device type"
-                        }
-                    },
-                    "required": ["histogram"]
+                        "organization_id": {"type": "string", "description": "Organization UUID"},
+                        "device_type": {"type": "string", "enum": DEVICE_TYPES}
+                    }
                 }
             },
             {
                 "name": "send_full_status",
-                "description": "Request a full status update from specified devices. This operation forces devices to send their complete status information to the server.",
+                "description": "Request a full status update from computers/mobiles",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "device_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Array of device IDs to request full status from (1-5 devices). Example: [\"34b8cd7a-7cff-4868-a238-4c8754909945\"]",
-                            "minItems": 1,
-                            "maxItems": 5
-                        }
+                        "device_ids": _DEVICE_IDS_SCHEMA
                     },
                     "required": ["device_ids"]
                 }
             },
             {
                 "name": "restart_system",
-                "description": "Restart specified devices (Windows computers only). A message can be displayed to the user before the restart.",
+                "description": "Restart Windows computers",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_ids": _DEVICE_IDS_SCHEMA,
+                        "message": {
+                            "type": "string",
+                            "maxLength": OPERATION_MESSAGE_MAX_LENGTH,
+                            "description": "Message shown before restart"
+                        }
+                    },
+                    "required": ["device_ids"]
+                }
+            },
+            {
+                "name": "update_devices",
+                "description": "Change devices: set exactly ONE of state (block/deactivate), "
+                               "subscription_key, alias (single device), importance, business_context "
+                               "or labels (replaces existing labels)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "device_ids": _DEVICE_IDS_SCHEMA,
+                        "state": {"type": "string", "enum": UPDATE_STATES},
+                        "subscription_key": {"type": "string", "description": "Target subscription key"},
+                        "alias": {"type": "string", "description": "Custom device name (1 device only)"},
+                        "importance": {"type": "string", "enum": DEVICE_IMPORTANCES},
+                        "business_context": {"type": "string"},
+                        "labels": {
+                            "type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 64
+                        }
+                    },
+                    "required": ["device_ids"]
+                }
+            },
+            {
+                "name": "delete_devices",
+                "description": "Delete devices from the organization (frees subscription seats; the "
+                               "product must be reinstalled to protect them again)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "device_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Array of device IDs to restart (1-5 devices, Windows computers only). Example: [\"34b8cd7a-7cff-4868-a238-4c8754909945\"]",
-                            "minItems": 1,
-                            "maxItems": 5
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "Optional message to display on the remote host before the device is restarted (max 512 characters)",
-                            "maxLength": 512
+                            "type": "array", "items": {"type": "string"},
+                            "minItems": 1, "maxItems": DELETE_DEVICES_MAX,
+                            "description": "Device IDs (1-20)"
                         }
                     },
                     "required": ["device_ids"]
                 }
             },
         ])
-        
-        @self.server.list_tools()
-        async def list_device_tools() -> List[Tool]:
-            """List available tools for devices."""
-            return [
-                Tool(
-                    name="list_devices",
-                    description="List WithSecure Elements devices",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID (optional)"
-                            },
-                            "device_name": {
-                                "type": "string",
-                                "description": "Filter by device name"
-                            },
-                            "device_type": {
-                                "type": "string",
-                                "description": "Filter by device type"
-                            },
-                            "status": {
-                                "type": "string",
-                                "description": "Filter by device status"
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Maximum number of devices to return",
-                                "default": 100
-                            },
-                            "last_seen_start": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "Start of last seen time range"
-                            },
-                            "last_seen_end": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "End of last seen time range"
-                            }
-                        }
-                    }
-                ),
-                Tool(
-                    name="get_device",
-                    description="Retrieve details of a specific device",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                ),
-                Tool(
-                    name="get_device_events",
-                    description="Retrieve device events",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Maximum number of events to return",
-                                "default": 100
-                            },
-                            "created_timestamp_start": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "Start of time range"
-                            },
-                            "created_timestamp_end": {
-                                "type": "string",
-                                "format": "date-time",
-                                "description": "End of time range"
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                ),
-                Tool(
-                    name="get_device_statistics",
-                    description="Retrieve device statistics",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                ),
-                Tool(
-                    name="isolate_device",
-                    description="Isolate a device from the network",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            },
-                            "reason": {
-                                "type": "string",
-                                "description": "Reason for isolation"
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                ),
-                Tool(
-                    name="unisolate_device",
-                    description="Unisolate a device from the network",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                ),
-                Tool(
-                    name="scan_device",
-                    description="Launch a scan on a device",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "device_id": {
-                                "type": "string",
-                                "description": "Device ID"
-                            },
-                            "scan_type": {
-                                "type": "string",
-                                "description": "Type of scan to perform",
-                                "enum": ["quick", "full", "custom"]
-                            }
-                        },
-                        "required": ["device_id"]
-                    }
-                )
-            ]
-        
-        @self.server.call_tool()
-        async def call_device_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            """Execute a device tool."""
-            if name == "list_devices":
-                filters = DeviceFilters(**arguments)
-                devices = await self._get_devices(filters)
-                return [TextContent(type="text", text=devices)]
-            
-            elif name == "get_device":
-                device_id = arguments["device_id"]
-                device = await self._get_device(device_id)
-                return [TextContent(type="text", text=device)]
-            
-            elif name == "get_device_events":
-                device_id = arguments["device_id"]
-                limit = arguments.get("limit", 100)
-                created_start = arguments.get("created_timestamp_start")
-                created_end = arguments.get("created_timestamp_end")
-                events = await self._get_device_events(device_id, limit, created_start, created_end)
-                return [TextContent(type="text", text=events)]
-            
-            elif name == "get_device_statistics":
-                device_id = arguments["device_id"]
-                statistics = await self._get_device_statistics(device_id)
-                return [TextContent(type="text", text=statistics)]
-            
-            elif name == "isolate_device":
-                device_id = arguments["device_id"]
-                reason = arguments.get("reason", "Manual isolation")
-                result = await self._isolate_device(device_id, reason)
-                return [TextContent(type="text", text=result)]
-            
-            elif name == "unisolate_device":
-                device_id = arguments["device_id"]
-                result = await self._unisolate_device(device_id)
-                return [TextContent(type="text", text=result)]
-            
-            elif name == "scan_device":
-                device_id = arguments["device_id"]
-                scan_type = arguments.get("scan_type", "quick")
-                result = await self._scan_device(device_id, scan_type)
-                return [TextContent(type="text", text=result)]
-            
-            else:
-                raise ValueError(f"Unrecognized tool: {name}")
-    
-    async def _get_devices(self, filters: Optional[DeviceFilters] = None) -> str:
-        """Retrieve devices list."""
-        import json
-        
+
+    def _org_id(self, organization_id: Optional[str] = None) -> Optional[str]:
+        """Resolve the organization ID (explicit value, else configured default)."""
+        return organization_id or self.config.organization_id
+
+    async def _get(self, path: str, params: Dict[str, Any], accept: Optional[str] = None) -> Any:
+        """GET a JSON resource from the API."""
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
         headers = await self.auth.get_headers()
-        params = {}
-        
-        if filters:
-            if filters.organization_id:
-                params["organizationId"] = filters.organization_id
-            elif self.config.organization_id:
-                params["organizationId"] = self.config.organization_id
-            
-            if filters.device_id:
-                params["deviceId"] = filters.device_id
-            if filters.device_name:
-                params["deviceName"] = filters.device_name
-            if filters.device_type:
-                params["deviceType"] = filters.device_type
-            if filters.status:
-                params["status"] = filters.status
-            if filters.last_seen_start:
-                params["lastSeenStart"] = filters.last_seen_start
-            if filters.last_seen_end:
-                params["lastSeenEnd"] = filters.last_seen_end
-            if filters.limit:
-                params["limit"] = filters.limit
-            if filters.anchor:
-                params["anchor"] = filters.anchor
-        
-        response = await self.auth._client.get(
-            "/devices/v1/devices",
-            headers=headers,
-            params=params
-        )
-        
+        if accept:
+            headers["Accept"] = accept
+
+        response = await self.auth._client.get(path, headers=headers, params=params)
+
         if response.status_code != 200:
-            raise Exception(f"Error retrieving devices: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-    
+            raise Exception(f"Error calling GET {path}: {response.status_code} - {response.text}")
+
+        return response.json()
+
+    async def _get_devices(self, filters: Optional[DeviceFilters] = None) -> str:
+        """Retrieve devices list."""
+        filters = filters or DeviceFilters()
+        params: Dict[str, Any] = {"limit": _clamp_limit(filters.limit)}
+
+        org_id = self._org_id(filters.organization_id)
+        if org_id:
+            params["organizationId"] = org_id
+
+        mapping = {
+            "deviceId": filters.device_id,
+            "name": filters.device_name,
+            "type": filters.device_type,
+            "state": filters.state,
+            "protectionStatusOverview": filters.protection_status_overview,
+            "patchOverallState": filters.patch_overall_state,
+            "label": filters.label,
+            "osName": filters.os_name,
+            "serialNumber": filters.serial_number,
+            "publicIpAddress": filters.public_ip_address,
+            "anchor": filters.anchor,
+        }
+        params.update({k: v for k, v in mapping.items() if v})
+        if filters.online is not None:
+            params["online"] = "true" if filters.online else "false"
+
+        return self._dump(await self._get("/devices/v1/devices", params))
+
     async def _get_device(self, device_id: str) -> str:
         """Retrieve details of a specific device.
 
         The Elements API has no /devices/{id} sub-resource; a single device is
         fetched from the list endpoint filtered by the deviceId query parameter.
         """
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-
-        headers = await self.auth.get_headers()
         params = {"deviceId": device_id}
-        if self.config.organization_id:
-            params["organizationId"] = self.config.organization_id
+        org_id = self._org_id()
+        if org_id:
+            params["organizationId"] = org_id
 
-        response = await self.auth._client.get(
-            "/devices/v1/devices",
-            headers=headers,
-            params=params
-        )
+        return self._dump(await self._get("/devices/v1/devices", params))
 
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving device: {response.status_code} - {response.text}")
+    async def _device_operation(self, operation: str, targets: List[str], parameters: Optional[Dict[str, Any]] = None) -> str:
+        """Trigger a remote operation on devices via POST /devices/v1/operations.
 
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-
-    async def _get_device_events(self, device_id: str, limit: int = 100, created_start: Optional[str] = None, created_end: Optional[str] = None) -> str:
-        """Retrieve security events for a device via the security-events endpoint."""
+        The API answers 207 Multi-Status with a per-target status in "multistatus".
+        """
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
 
-        headers = await self.auth.get_headers()
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-        headers["Accept"] = "application/json"
-        params = {
-            "targetId": device_id,
-            "limit": limit,
-            "engineGroup": "epp",
-        }
-        if self.config.organization_id:
-            params["organizationId"] = self.config.organization_id
-        if created_start:
-            params["persistenceTimestampStart"] = created_start
-        if created_end:
-            params["persistenceTimestampEnd"] = created_end
-
-        response = await self.auth._client.post(
-            "/security-events/v1/security-events",
-            headers=headers,
-            data=params
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving device events: {response.status_code} - {response.text}")
-
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-
-    async def _device_operation(self, operation: str, device_id: str, parameters: Optional[Dict[str, Any]] = None) -> str:
-        """Trigger a remote operation on a device via /devices/v1/operations."""
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
+        if isinstance(targets, str):
+            targets = [targets]
+        if not targets or len(targets) > OPERATION_TARGETS_MAX:
+            raise ValueError(f"targets must contain 1-{OPERATION_TARGETS_MAX} device IDs")
 
         headers = await self.auth.get_headers()
         headers["Content-Type"] = "application/json"
 
         data: Dict[str, Any] = {
             "operation": operation,
-            "targets": [device_id],
+            "targets": targets,
         }
         if parameters:
             data["parameters"] = parameters
@@ -680,291 +423,116 @@ class DevicesModule(BaseModule):
             json=data
         )
 
-        if response.status_code not in [200, 202, 207]:
+        if response.status_code not in (200, 202, 207):
             raise Exception(f"Error triggering {operation}: {response.status_code} - {response.text}")
 
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
+        return self._dump(response.json())
 
-    async def _isolate_device(self, device_id: str, reason: str) -> str:
+    async def _isolate_device(self, device_id: str, reason: Optional[str] = None) -> str:
         """Isolate a device from the network (operation: isolateFromNetwork)."""
         return await self._device_operation(
-            "isolateFromNetwork", device_id, {"message": reason} if reason else None
+            "isolateFromNetwork", [device_id], {"message": reason} if reason else None
         )
 
     async def _unisolate_device(self, device_id: str) -> str:
         """Release a device from network isolation (operation: releaseFromNetworkIsolation)."""
-        return await self._device_operation("releaseFromNetworkIsolation", device_id)
+        return await self._device_operation("releaseFromNetworkIsolation", [device_id])
 
-    async def _scan_device(self, device_id: str, scan_type: str) -> str:
-        """Launch a malware scan on a device (operation: scanForMalware)."""
-        return await self._device_operation("scanForMalware", device_id)
-    
+    async def _scan_device(self, device_id: str) -> str:
+        """Launch a malware scan on a device (operation: scanForMalware, no parameters)."""
+        return await self._device_operation("scanForMalware", [device_id])
+
     async def _show_message(self, device_id: str, message: str) -> str:
-        """Show message to device user."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Content-Type"] = "application/json"
-        
-        data = {
-            "operation": "showMessage",
-            "targets": [device_id],
-            "parameters": {
-                "message": message
-            }
-        }
-        
-        response = await self.auth._client.post(
-            "/devices/v1/operations",
-            headers=headers,
-            json=data
-        )
-        
-        if response.status_code not in [200, 202, 207]:
-            raise Exception(f"Error showing message: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return json.dumps(result)
-    
+        """Show message to device user (operation: showMessage)."""
+        return await self._device_operation("showMessage", [device_id], {"message": message})
+
     async def _assign_profile(self, device_id: str, profile_id: int) -> str:
-        """Assign profile to device."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Content-Type"] = "application/json"
-        
-        data = {
-            "operation": "assignProfile",
-            "targets": [device_id],
-            "parameters": {
-                "profileId": profile_id
-            }
-        }
-        
-        response = await self.auth._client.post(
-            "/devices/v1/operations",
-            headers=headers,
-            json=data
-        )
-        
-        if response.status_code not in [200, 202, 207]:
-            raise Exception(f"Error assigning profile: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return json.dumps(result)
-    
-    async def _get_device_operations(self, device_id: str, limit: int = 100, anchor: str = None) -> str:
-        """Get device operations list."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        params = {
-            "deviceId": device_id,
-            "limit": limit
-        }
-        if anchor:
-            params["anchor"] = anchor
-        
-        response = await self.auth._client.get(
-            "/devices/v1/operations",
-            headers=headers,
-            params=params
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error getting device operations: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return json.dumps(result)
-    
-    async def _get_device_operation_status(self, device_id: str, operation_id: str) -> str:
-        """Get a specific device operation status from /devices/v1/operations."""
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
+        """Assign profile to device (operation: assignProfile)."""
+        return await self._device_operation("assignProfile", [device_id], {"profileId": profile_id})
 
-        headers = await self.auth.get_headers()
-        params = {"deviceId": device_id}
-        if operation_id:
-            params["operationId"] = operation_id
-
-        response = await self.auth._client.get(
-            "/devices/v1/operations",
-            headers=headers,
-            params=params
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Error getting operation status: {response.status_code} - {response.text}")
-
-        result = response.json()
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-    
-    async def _get_device_statistics(self, organization_id: str = None, count: str = None, device_type: str = None, state: str = None) -> str:
-        """Get device statistics and aggregated data."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Accept"] = "application/vnd.withsecure.aggr+json"
-        
-        params = {}
-        if organization_id:
-            params["organizationId"] = organization_id
-        if count:
-            params["count"] = count
-        if device_type:
-            params["type"] = device_type
-        if state:
-            params["state"] = state
-        
-        response = await self.auth._client.get(
-            "/devices/v1/devices",
-            headers=headers,
-            params=params
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error getting device statistics: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return json.dumps(result)
-    
-    async def _get_device_histogram(self, histogram: str, organization_id: str = None, device_type: str = None) -> str:
-        """Get device histogram statistics for the last 30 days."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        headers["Accept"] = "application/vnd.withsecure.aggr+json"
-        
-        params = {
-            "histogram": histogram
-        }
-        if organization_id:
-            params["organizationId"] = organization_id
-        if device_type:
-            params["type"] = device_type
-        
-        response = await self.auth._client.get(
-            "/devices/v1/devices",
-            headers=headers,
-            params=params
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error getting device histogram: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return json.dumps(result)
-    
     async def _send_full_status(self, device_ids: List[str]) -> str:
-        """Request a full status update from specified devices."""
-        headers = await self.auth.get_headers()
-        
-        # Build request body
-        request_body = {
-            "operation": "sendFullStatus",
-            "targets": device_ids
-        }
-        
-        # Make API request
-        response = await self.auth._client.post(
-            "/devices/v1/operations",
-            headers=headers,
-            json=request_body
-        )
-        
-        if response.status_code == 207:
-            # Multi-status response
-            data = response.json()
-            results = []
-            
-            for item in data.get("multistatus", []):
-                result = {
-                    "target": item.get("target"),
-                    "status": item.get("status"),
-                    "details": item.get("details"),
-                    "operation_id": item.get("operationId")
-                }
-                results.append(result)
-            
-            return json.dumps({
-                "success": True,
-                "message": f"Full status request sent to {len(device_ids)} device(s)",
-                "results": results,
-                "transaction_id": data.get("transactionId")
-            }, indent=2)
-        else:
-            return json.dumps({
-                "success": False,
-                "message": f"Failed to send full status request: {response.status_code}",
-                "error": response.text
-            }, indent=2)
-    
+        """Request a full status update from devices (operation: sendFullStatus)."""
+        return await self._device_operation("sendFullStatus", device_ids)
+
     async def _restart_system(self, device_ids: List[str], message: Optional[str] = None) -> str:
-        """Restart specified devices (Windows computers only)."""
-        headers = await self.auth.get_headers()
-        
-        # Build request body
-        request_body = {
-            "operation": "restartSystem",
-            "targets": device_ids
-        }
-        
-        # Add message parameter if provided
-        if message:
-            request_body["parameters"] = {
-                "message": message
-            }
-        
-        # Make API request
-        response = await self.auth._client.post(
-            "/devices/v1/operations",
-            headers=headers,
-            json=request_body
+        """Restart Windows computers (operation: restartSystem)."""
+        return await self._device_operation(
+            "restartSystem", device_ids, {"message": message} if message else None
         )
-        
-        if response.status_code == 207:
-            # Multi-status response
-            data = response.json()
-            results = []
-            
-            for item in data.get("multistatus", []):
-                result = {
-                    "target": item.get("target"),
-                    "status": item.get("status"),
-                    "details": item.get("details"),
-                    "operation_id": item.get("operationId")
-                }
-                results.append(result)
-            
-            return json.dumps({
-                "success": True,
-                "message": f"System restart triggered on {len(device_ids)} device(s)",
-                "results": results,
-                "transaction_id": data.get("transactionId")
-            }, indent=2)
-        else:
-            return json.dumps({
-                "success": False,
-                "message": f"Failed to trigger system restart: {response.status_code}",
-                "error": response.text
-            }, indent=2)
-    
+
+    async def _update_devices(self, device_ids: List[str], changes: Dict[str, Any]) -> str:
+        """Apply one change to devices via PATCH /devices/v1/devices (207 Multi-Status)."""
+        provided = {k: v for k, v in changes.items() if k in DEVICE_UPDATE_FIELDS and v not in (None, "", [])}
+        if len(provided) != 1:
+            raise ValueError(
+                f"Provide exactly one of: {', '.join(DEVICE_UPDATE_FIELDS)} (got {len(provided)})"
+            )
+        field, value = next(iter(provided.items()))
+        targets = [device_ids] if isinstance(device_ids, str) else list(device_ids or [])
+        max_targets = 1 if field == "alias" else OPERATION_TARGETS_MAX
+        if not 1 <= len(targets) <= max_targets:
+            raise ValueError(f"device_ids must contain 1-{max_targets} device IDs for '{field}'")
+        body = {"targets": targets, DEVICE_UPDATE_FIELDS[field]: value}
+        return self._dump(await self._send(
+            "PATCH", "/devices/v1/devices", "updating devices", ok=(200, 207), body=body
+        ))
+
+    async def _delete_devices(self, device_ids: List[str]) -> str:
+        """Delete devices via DELETE /devices/v1/devices."""
+        targets = [device_ids] if isinstance(device_ids, str) else list(device_ids or [])
+        if not 1 <= len(targets) <= DELETE_DEVICES_MAX:
+            raise ValueError(f"device_ids must contain 1-{DELETE_DEVICES_MAX} device IDs")
+        return self._dump(await self._send(
+            "DELETE", "/devices/v1/devices", "deleting devices", params={"deviceId": targets}
+        ))
+
+    async def _list_device_operations(self, device_id: str) -> List[Dict[str, Any]]:
+        """List operations of a device (GET /devices/v1/operations; only deviceId is accepted)."""
+        result = await self._get("/devices/v1/operations", {"deviceId": device_id})
+        return result.get("items", []) if isinstance(result, dict) else []
+
+    async def _get_device_operations(self, device_id: str) -> str:
+        """Get device operations list."""
+        return self._dump({"items": await self._list_device_operations(device_id)})
+
+    async def _get_device_operation_status(self, device_id: str, operation_id: str) -> str:
+        """Get one operation status; the API has no operationId filter, so match client-side."""
+        for item in await self._list_device_operations(device_id):
+            if str(item.get("id")) == str(operation_id):
+                return self._dump(item)
+        raise Exception(f"Operation {operation_id} not found for device {device_id}")
+
+    async def _get_device_aggregation(self, params: Dict[str, Any], organization_id: Optional[str] = None,
+                                      device_type: Optional[str] = None) -> str:
+        """Query device aggregations (Accept: application/vnd.withsecure.aggr+json)."""
+        org_id = self._org_id(organization_id)
+        if org_id:
+            params["organizationId"] = org_id
+        if device_type:
+            params["type"] = device_type
+        return self._dump(await self._get("/devices/v1/devices", params, accept=AGGREGATION_ACCEPT))
+
+    async def _get_device_statistics(self, count: str, organization_id: Optional[str] = None,
+                                     device_type: Optional[str] = None, device_name: Optional[str] = None,
+                                     online: Optional[bool] = None, label: Optional[str] = None,
+                                     protection_status_overview: Optional[str] = None) -> str:
+        """Count devices grouped by a property."""
+        params: Dict[str, Any] = {"count": count}
+        if device_name:
+            params["name"] = device_name
+        if online is not None:
+            params["online"] = "true" if online else "false"
+        if label:
+            params["label"] = label
+        if protection_status_overview:
+            params["protectionStatusOverview"] = protection_status_overview
+        return await self._get_device_aggregation(params, organization_id, device_type)
+
+    async def _get_device_histogram(self, histogram: str = "protectionStatus", organization_id: Optional[str] = None,
+                                    device_type: Optional[str] = None) -> str:
+        """Get device histogram statistics for the last 30 days."""
+        return await self._get_device_aggregation({"histogram": histogram}, organization_id, device_type)
+
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read a device resource."""
         if uri == "withsecure://devices":
@@ -978,177 +546,76 @@ class DevicesModule(BaseModule):
         """Call a tool by name with arguments."""
         try:
             if tool_name == "list_devices":
-                filters = DeviceFilters(**arguments)
-                devices = await self._get_devices(filters)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": devices
-                        }
-                    ]
-                }
-            
+                result = await self._get_devices(DeviceFilters(**arguments))
+
             elif tool_name == "get_device":
-                device_id = arguments["device_id"]
-                device = await self._get_device(device_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": device
-                        }
-                    ]
-                }
-            
+                result = await self._get_device(arguments["device_id"])
+
             elif tool_name == "isolate_device":
-                device_id = arguments["device_id"]
-                reason = arguments["reason"]
-                result = await self._isolate_device(device_id, reason)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._isolate_device(arguments["device_id"], arguments.get("reason"))
+
             elif tool_name == "unisolate_device":
-                device_id = arguments["device_id"]
-                result = await self._unisolate_device(device_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._unisolate_device(arguments["device_id"])
+
             elif tool_name == "scan_device":
-                device_id = arguments["device_id"]
-                scan_type = arguments["scan_type"]
-                result = await self._scan_device(device_id, scan_type)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._scan_device(arguments["device_id"])
+
             elif tool_name == "show_message":
-                device_id = arguments["device_id"]
-                message = arguments["message"]
-                result = await self._show_message(device_id, message)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._show_message(arguments["device_id"], arguments["message"])
+
             elif tool_name == "assign_profile":
-                device_id = arguments["device_id"]
-                profile_id = arguments["profile_id"]
-                result = await self._assign_profile(device_id, profile_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._assign_profile(arguments["device_id"], arguments["profile_id"])
+
             elif tool_name == "get_device_operations":
-                device_id = arguments["device_id"]
-                limit = arguments.get("limit", 100)
-                anchor = arguments.get("anchor")
-                result = await self._get_device_operations(device_id, limit, anchor)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._get_device_operations(arguments["device_id"])
+
             elif tool_name == "get_device_operation_status":
-                device_id = arguments["device_id"]
-                operation_id = arguments["operation_id"]
-                result = await self._get_device_operation_status(device_id, operation_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._get_device_operation_status(
+                    arguments["device_id"], arguments["operation_id"]
+                )
+
             elif tool_name == "get_device_statistics":
-                organization_id = arguments.get("organization_id")
-                count = arguments.get("count")
-                device_type = arguments.get("device_type")
-                state = arguments.get("state")
-                result = await self._get_device_statistics(organization_id, count, device_type, state)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._get_device_statistics(
+                    arguments["count"],
+                    organization_id=arguments.get("organization_id"),
+                    device_type=arguments.get("device_type"),
+                    device_name=arguments.get("device_name"),
+                    online=arguments.get("online"),
+                    label=arguments.get("label"),
+                    protection_status_overview=arguments.get("protection_status_overview"),
+                )
+
             elif tool_name == "get_device_histogram":
-                histogram = arguments["histogram"]
-                organization_id = arguments.get("organization_id")
-                device_type = arguments.get("device_type")
-                result = await self._get_device_histogram(histogram, organization_id, device_type)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._get_device_histogram(
+                    arguments.get("histogram") or "protectionStatus",
+                    organization_id=arguments.get("organization_id"),
+                    device_type=arguments.get("device_type"),
+                )
+
             elif tool_name == "send_full_status":
-                device_ids = arguments["device_ids"]
-                result = await self._send_full_status(device_ids)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._send_full_status(arguments["device_ids"])
+
             elif tool_name == "restart_system":
-                device_ids = arguments["device_ids"]
-                message = arguments.get("message")
-                result = await self._restart_system(device_ids, message)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result
-                        }
-                    ]
-                }
-            
+                result = await self._restart_system(arguments["device_ids"], arguments.get("message"))
+
+            elif tool_name == "update_devices":
+                result = await self._update_devices(arguments["device_ids"], arguments)
+
+            elif tool_name == "delete_devices":
+                result = await self._delete_devices(arguments["device_ids"])
+
             else:
                 return None
-                
+
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": result
+                    }
+                ]
+            }
+
         except Exception as e:
             return {
                 "content": [

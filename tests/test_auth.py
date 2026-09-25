@@ -105,3 +105,28 @@ async def test_token_validity_check(auth):
     auth._token_expires_at = None
     
     assert auth._is_token_valid() is False
+
+
+@pytest.mark.asyncio
+async def test_retry_transport_does_not_replay_non_idempotent_5xx(monkeypatch):
+    """A POST that fails with 5xx must not be re-sent (it may have executed)."""
+    import httpx
+    from withsecure_elements_mcp import auth as auth_mod
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(auth_mod.asyncio, "sleep", no_sleep)
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(502)
+
+    transport = auth_mod._RetryTransport(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=transport, base_url="https://api.test") as client:
+        assert (await client.post("/devices/v1/operations", json={})).status_code == 502
+        assert calls == ["POST"]
+        calls.clear()
+        assert (await client.get("/devices/v1/devices")).status_code == 502
+        assert calls == ["GET"] * 4

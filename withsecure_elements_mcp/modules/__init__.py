@@ -8,6 +8,7 @@ from .organizations import OrganizationsModule
 from .devices import DevicesModule
 from .response_actions import ResponseActionsModule
 from .software_updates import SoftwareUpdatesModule
+from .management import ManagementModule
 
 __all__ = [
     "IncidentsModule",
@@ -15,5 +16,6 @@ __all__ = [
     "OrganizationsModule",
     "DevicesModule",
     "ResponseActionsModule",
-    "SoftwareUpdatesModule"
+    "SoftwareUpdatesModule",
+    "ManagementModule",
 ]

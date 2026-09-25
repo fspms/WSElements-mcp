@@ -15,6 +15,12 @@ logger = logging.getLogger("withsecure-elements-mcp")
 
 # HTTP status codes that warrant a retry with backoff.
 _RETRY_STATUS = {429, 500, 502, 503, 504}
+# 5xx on a non-idempotent request (e.g. a device operation) may mean the action
+# already ran, so those are only retried on 429 (request was not processed).
+_IDEMPOTENT_METHODS = {"GET", "HEAD", "OPTIONS", "PUT", "DELETE"}
+_TOKEN_PATH = "/as/token.oauth2"
+# Upper bound for a server-provided Retry-After, to avoid stalling a tool call.
+_MAX_RETRY_DELAY = 30.0
 
 
 class _RetryTransport(httpx.AsyncBaseTransport):
@@ -32,10 +38,14 @@ class _RetryTransport(httpx.AsyncBaseTransport):
         attempt = 0
         while True:
             response = await self._wrapped.handle_async_request(request)
-            if response.status_code in _RETRY_STATUS and attempt < self._max_retries:
+            retryable = response.status_code == 429 or (
+                response.status_code in _RETRY_STATUS
+                and (request.method in _IDEMPOTENT_METHODS or request.url.path == _TOKEN_PATH)
+            )
+            if retryable and attempt < self._max_retries:
                 retry_after = response.headers.get("retry-after", "")
                 if retry_after.isdigit():
-                    delay = float(retry_after)
+                    delay = min(float(retry_after), _MAX_RETRY_DELAY)
                 else:
                     delay = min(2 ** attempt, 8)
                 await response.aclose()
@@ -129,7 +139,7 @@ class WithSecureAuth:
         }
         
         response = await self._client.post(
-            "/as/token.oauth2",
+            _TOKEN_PATH,
             data=auth_data,
             auth=(self.config.client_id, self.config.client_secret)
         )

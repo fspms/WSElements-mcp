@@ -3,26 +3,36 @@ MCP module for WithSecure Elements organizations management.
 """
 
 from typing import Any, Dict, List, Optional
-from mcp.types import Resource, Tool, TextContent
 
 from .base import BaseModule
 
 
+ORGANIZATIONS_PATH = "/organizations/v1/organizations"
+WHOAMI_PATH = "/whoami/v1/whoami"
+
+# `type` query parameter enum (API default: company)
+ALLOWED_ORG_TYPES: List[str] = ["company", "partner"]
+
+# `limit` query parameter bounds (API default: 200)
+ORGANIZATIONS_LIMIT_MIN = 1
+ORGANIZATIONS_LIMIT_MAX = 1000
+ORGANIZATIONS_LIMIT_DEFAULT = 100
+
+
+
 class OrganizationsModule(BaseModule):
     """Module for organizations management."""
-    
+
     @property
     def name(self) -> str:
         return "organizations"
-    
+
     @property
     def description(self) -> str:
         return "WithSecure Elements organizations management"
-    
+
     def _register_resources(self) -> None:
         """Register resources for organizations."""
-        
-        # Add resources to the list for HTTP transport
         self._resources.extend([
             {
                 "uri": "withsecure://organizations",
@@ -33,56 +43,17 @@ class OrganizationsModule(BaseModule):
             {
                 "uri": "withsecure://organizations/current",
                 "name": "Current Organization",
-                "description": "Current organization information",
+                "description": "Current API client and organization ID (whoami)",
                 "mimeType": "application/json"
             }
         ])
-        
-        @self.server.list_resources()
-        async def list_organizations() -> List[Resource]:
-            """List available organization resources."""
-            return [
-                Resource(
-                    uri="withsecure://organizations",
-                    name="Organizations",
-                    description="WithSecure Elements organizations list",
-                    mimeType="application/json"
-                ),
-                Resource(
-                    uri="withsecure://organizations/current",
-                    name="Current Organization",
-                    description="Current organization information",
-                    mimeType="application/json"
-                )
-            ]
-        
-        @self.server.read_resource()
-        async def read_organization(uri: str) -> str:
-            """Read an organization resource."""
-            if uri == "withsecure://organizations":
-                # Get organizations list
-                organizations = await self._get_organizations()
-                return organizations
-            elif uri == "withsecure://organizations/current":
-                # Get current organization
-                current_org = await self._get_current_organization()
-                return current_org
-            elif uri.startswith("withsecure://organizations/"):
-                # Get specific organization
-                org_id = uri.split("/")[-1]
-                organization = await self._get_organization(org_id)
-                return organization
-            else:
-                raise ValueError(f"Unrecognized resource URI: {uri}")
-    
+
     def _register_tools(self) -> None:
         """Register tools for organizations."""
-        
-        # Add tools to the list for HTTP transport
         self._tools.extend([
             {
                 "name": "get_current_organization",
-                "description": "Retrieve current organization information",
+                "description": "Get the authenticated API client ID and its organization ID (whoami)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {}
@@ -90,166 +61,111 @@ class OrganizationsModule(BaseModule):
             },
             {
                 "name": "list_organizations",
-                "description": "List all accessible organizations",
+                "description": "List organizations of a type under an organization (including itself if the type matches)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Parent organization UUID (default: configured/own org)"
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ALLOWED_ORG_TYPES,
+                            "default": "company",
+                            "description": "Organization type to list"
+                        },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of organizations to return",
-                            "default": 100
+                            "minimum": ORGANIZATIONS_LIMIT_MIN,
+                            "maximum": ORGANIZATIONS_LIMIT_MAX,
+                            "default": ORGANIZATIONS_LIMIT_DEFAULT,
+                            "description": "Page size"
                         },
                         "anchor": {
                             "type": "string",
-                            "description": "Pagination anchor; pass the nextAnchor from a previous response to fetch the next page"
+                            "description": "nextAnchor from a previous response"
                         }
                     }
                 }
             },
             {
                 "name": "get_organization",
-                "description": "Retrieve details of a specific organization",
+                "description": "Get a specific organization (id, name, type)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "organization_id": {
                             "type": "string",
-                            "description": "Organization ID"
+                            "description": "Organization UUID"
                         }
                     },
                     "required": ["organization_id"]
                 }
             }
         ])
-        
-        @self.server.list_tools()
-        async def list_organization_tools() -> List[Tool]:
-            """List available tools for organizations."""
-            return [
-                Tool(
-                    name="get_current_organization",
-                    description="Retrieve current organization information",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {}
-                    }
-                ),
-                Tool(
-                    name="list_organizations",
-                    description="List all accessible organizations",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "Maximum number of organizations to return",
-                                "default": 100
-                            }
-                        }
-                    }
-                ),
-                Tool(
-                    name="get_organization",
-                    description="Retrieve details of a specific organization",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID"
-                            }
-                        },
-                        "required": ["organization_id"]
-                    }
-                )
-            ]
-        
-        @self.server.call_tool()
-        async def call_organization_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            """Execute an organization tool."""
-            if name == "get_current_organization":
-                current_org = await self._get_current_organization()
-                return [TextContent(type="text", text=current_org)]
-            
-            elif name == "list_organizations":
-                limit = arguments.get("limit", 100)
-                organizations = await self._get_organizations(limit)
-                return [TextContent(type="text", text=organizations)]
-            
-            elif name == "get_organization":
-                organization_id = arguments["organization_id"]
-                organization = await self._get_organization(organization_id)
-                return [TextContent(type="text", text=organization)]
 
-            else:
-                raise ValueError(f"Unrecognized tool: {name}")
-    
-    async def _get_current_organization(self) -> str:
-        """Retrieve current organization information."""
-        import json
-        
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-        
-        headers = await self.auth.get_headers()
-        
-        response = await self.auth._client.get(
-            "/whoami/v1/whoami",
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving user information: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-    
-    async def _get_organizations(self, limit: int = 100, anchor: Optional[str] = None) -> str:
-        """Retrieve organizations list."""
-        import json
-
+    async def _request(self, path: str, params: Dict[str, Any], what: str) -> Dict[str, Any]:
+        """GET an endpoint and return the decoded JSON body."""
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
 
         headers = await self.auth.get_headers()
-        params = {"limit": limit}
-        if anchor:
-            params["anchor"] = anchor
-
         response = await self.auth._client.get(
-            "/organizations/v1/organizations",
+            path,
             headers=headers,
-            params=params
+            params={k: v for k, v in params.items() if v is not None}
         )
-        
+
         if response.status_code != 200:
-            raise Exception(f"Error retrieving organizations: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-    
+            raise Exception(f"Error retrieving {what}: {response.status_code} - {response.text}")
+
+        return response.json()
+
+    async def _get_current_organization(self) -> str:
+        """Retrieve current client/organization information (whoami)."""
+        return self._dump(await self._request(WHOAMI_PATH, {}, "user information"))
+
+    async def _get_organizations(
+        self,
+        limit: Optional[int] = ORGANIZATIONS_LIMIT_DEFAULT,
+        anchor: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        org_type: Optional[str] = None,
+    ) -> str:
+        """Retrieve a page of organizations."""
+        if org_type and org_type not in ALLOWED_ORG_TYPES:
+            raise ValueError(
+                f"Invalid type: {org_type}. Allowed: " + ", ".join(ALLOWED_ORG_TYPES)
+            )
+        limit = limit or ORGANIZATIONS_LIMIT_DEFAULT
+        params = {
+            "organizationId": organization_id or self.config.organization_id,
+            "type": org_type,
+            "limit": max(ORGANIZATIONS_LIMIT_MIN, min(int(limit), ORGANIZATIONS_LIMIT_MAX)),
+            "anchor": anchor,
+        }
+        return self._dump(await self._request(ORGANIZATIONS_PATH, params, "organizations"))
+
     async def _get_organization(self, organization_id: str) -> str:
         """Retrieve a specific organization.
 
-        The Elements API exposes a single list endpoint; a specific organization
-        is selected via the organizationId query parameter (there is no
-        /organizations/{id} sub-resource, nor settings/statistics endpoints).
+        The Elements API only exposes the list endpoint: with organizationId=X
+        it returns organizations of the given type under X, including X itself
+        when the type matches. There is no /organizations/{id} sub-resource, so
+        both types are queried and the matching item is returned.
         """
-        import json
+        for org_type in ALLOWED_ORG_TYPES:
+            data = await self._request(
+                ORGANIZATIONS_PATH,
+                {"organizationId": organization_id, "type": org_type, "limit": ORGANIZATIONS_LIMIT_MAX},
+                "organization",
+            )
+            for item in data.get("items", []):
+                if item.get("id") == organization_id:
+                    return self._dump(item)
 
-        if not self.auth._client:
-            raise RuntimeError("HTTP client not initialized")
-
-        headers = await self.auth.get_headers()
-
-        response = await self.auth._client.get(
-            "/organizations/v1/organizations",
-            headers=headers,
-            params={"organizationId": organization_id}
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Error retrieving organization: {response.status_code} - {response.text}")
-
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
+        raise ValueError(f"Organization {organization_id} not found")
 
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read an organization resource."""
@@ -264,46 +180,31 @@ class OrganizationsModule(BaseModule):
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Call a tool by name with arguments."""
+        arguments = arguments or {}
         try:
             if tool_name == "get_current_organization":
-                current_org = await self._get_current_organization()
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": current_org
-                        }
-                    ]
-                }
-            
+                text = await self._get_current_organization()
             elif tool_name == "list_organizations":
-                limit = arguments.get("limit", 100)
-                anchor = arguments.get("anchor")
-                organizations = await self._get_organizations(limit, anchor)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": organizations
-                        }
-                    ]
-                }
-            
+                text = await self._get_organizations(
+                    limit=arguments.get("limit", ORGANIZATIONS_LIMIT_DEFAULT),
+                    anchor=arguments.get("anchor"),
+                    organization_id=arguments.get("organization_id"),
+                    org_type=arguments.get("type"),
+                )
             elif tool_name == "get_organization":
-                organization_id = arguments["organization_id"]
-                organization = await self._get_organization(organization_id)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": organization
-                        }
-                    ]
-                }
-            
+                text = await self._get_organization(arguments["organization_id"])
             else:
                 return None
-                
+
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": text
+                    }
+                ]
+            }
+
         except Exception as e:
             return {
                 "content": [

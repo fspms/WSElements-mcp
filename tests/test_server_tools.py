@@ -37,6 +37,7 @@ async def test_all_modules_expose_tools():
         "list_devices",              # devices
         "list_response_actions_responses",  # response_actions
         "install_software_updates",  # software_updates
+        "list_audit_logs",           # management
     ]
     for tool_name in expected:
         assert tool_name in names, f"missing tool {tool_name} (module collision?)"
@@ -68,7 +69,11 @@ async def test_tool_annotations():
 
     assert by_name["list_devices"].annotations.readOnlyHint is True
     assert by_name["get_incident"].annotations.readOnlyHint is True
-    for destructive in ("isolate_device", "restart_system", "scan_device"):
+    for destructive in (
+        "isolate_device", "restart_system", "scan_device",
+        "update_devices", "delete_devices",
+        "create_invitation", "delete_invitations", "renew_invitations",
+    ):
         assert by_name[destructive].annotations.destructiveHint is True
 
 

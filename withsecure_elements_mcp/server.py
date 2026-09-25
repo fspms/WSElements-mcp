@@ -10,11 +10,11 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Resource, TextContent, Tool
+from mcp.types import CallToolResult, Resource, TextContent, Tool
 
 from .config import load_config
 from .auth import WithSecureAuth
-from .modules import IncidentsModule, EventsModule, OrganizationsModule, DevicesModule, ResponseActionsModule, SoftwareUpdatesModule
+from .modules import IncidentsModule, EventsModule, OrganizationsModule, DevicesModule, ResponseActionsModule, SoftwareUpdatesModule, ManagementModule
 
 
 class WithSecureElementsMCPServer:
@@ -41,7 +41,7 @@ class WithSecureElementsMCPServer:
         self._setup_logging()
         
         # MCP server initialization
-        self.server = Server("withsecure-elements-mcp", version="0.1.2")
+        self.server = Server("withsecure-elements-mcp", version="0.2.0")
         self.auth = None
         self.modules = []
     
@@ -68,7 +68,8 @@ class WithSecureElementsMCPServer:
             "organizations": OrganizationsModule,
             "devices": DevicesModule,
             "response_actions": ResponseActionsModule,
-            "software_updates": SoftwareUpdatesModule
+            "software_updates": SoftwareUpdatesModule,
+            "management": ManagementModule,
         }
         
         for module_name in self.mcp_config.enabled_modules:
@@ -105,6 +106,11 @@ class WithSecureElementsMCPServer:
         "scan_device",
         "install_software_updates",
         "create_response_action",
+        "update_devices",
+        "delete_devices",
+        "create_invitation",
+        "delete_invitations",
+        "renew_invitations",
     }
 
     @classmethod
@@ -121,6 +127,42 @@ class WithSecureElementsMCPServer:
             annotations["destructiveHint"] = True
         return annotations or None
 
+    def _build_tools(self) -> List[Tool]:
+        """Aggregate tool definitions from every enabled module (deduplicated)."""
+        tools: List[Tool] = []
+        seen: set = set()
+        for module in self.modules:
+            for tool in module.get_tools():
+                name = tool["name"]
+                if name in seen:
+                    continue
+                seen.add(name)
+                tools.append(
+                    Tool(
+                        name=name,
+                        description=tool.get("description", ""),
+                        inputSchema=tool.get(
+                            "inputSchema", {"type": "object", "properties": {}}
+                        ),
+                        annotations=tool.get("annotations")
+                        or self._annotations_for(name),
+                    )
+                )
+        return tools
+
+    async def _dispatch_tool(self, name: str, arguments: Dict[str, Any]) -> Optional[CallToolResult]:
+        """Route a tool call to the owning module; None if no module handles it.
+
+        Preserves the module's isError flag so clients can tell failures apart
+        from successful results.
+        """
+        for module in self.modules:
+            result = await module.call_tool(name, arguments or {})
+            if result is not None:
+                is_error = isinstance(result, dict) and bool(result.get("isError"))
+                return CallToolResult(content=self._to_text_content(result), isError=is_error)
+        return None
+
     def _register_central_handlers(self) -> None:
         """Register MCP handlers that aggregate every enabled module.
 
@@ -133,34 +175,14 @@ class WithSecureElementsMCPServer:
 
         @self.server.list_tools()
         async def _list_tools() -> List[Tool]:
-            tools: List[Tool] = []
-            seen: set = set()
-            for module in self.modules:
-                for tool in module.get_tools():
-                    name = tool["name"]
-                    if name in seen:
-                        continue
-                    seen.add(name)
-                    tools.append(
-                        Tool(
-                            name=name,
-                            description=tool.get("description", ""),
-                            inputSchema=tool.get(
-                                "inputSchema", {"type": "object", "properties": {}}
-                            ),
-                            annotations=tool.get("annotations")
-                            or self._annotations_for(name),
-                        )
-                    )
-            return tools
+            return self._build_tools()
 
         @self.server.call_tool()
-        async def _call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            for module in self.modules:
-                result = await module.call_tool(name, arguments)
-                if result is not None:
-                    return self._to_text_content(result)
-            raise ValueError(f"Tool '{name}' not found")
+        async def _call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
+            result = await self._dispatch_tool(name, arguments)
+            if result is None:
+                raise ValueError(f"Tool '{name}' not found")
+            return result
 
         @self.server.list_resources()
         async def _list_resources() -> List[Resource]:
@@ -235,217 +257,28 @@ class WithSecureElementsMCPServer:
                             self.server.create_initialization_options()
                         )
                 
-                elif transport == "sse":
-                    self.logger.info(f"Starting server with SSE transport on {host}:{port}")
-                    from mcp.server.sse import SseServerTransport
-                    from starlette.applications import Starlette
-                    from starlette.routing import Mount, Route
+                elif transport in ("sse", "streamable-http"):
                     import uvicorn
+                    from .http_app import SDK_PATH, build_sse_app, build_streamable_http_app
 
-                    sse = SseServerTransport("/messages/")
-
-                    async def handle_sse(request):
-                        async with sse.connect_sse(
-                            request.scope, request.receive, request._send
-                        ) as (read_stream, write_stream):
-                            await self.server.run(
-                                read_stream,
-                                write_stream,
-                                self.server.create_initialization_options(),
-                            )
-                        from starlette.responses import Response
-                        return Response()
-
-                    app = Starlette(
-                        routes=[
-                            Route("/sse", endpoint=handle_sse),
-                            Mount("/messages/", app=sse.handle_post_message),
-                        ]
+                    if transport == "sse":
+                        app = build_sse_app(self)
+                        endpoints = "/sse"
+                    else:
+                        app = build_streamable_http_app(self)
+                        endpoints = "/ (legacy JSON-RPC)"
+                        if self.mcp_config.http_mode == "sdk":
+                            endpoints += f", {SDK_PATH} (MCP SDK streamable HTTP)"
+                    self.logger.info(
+                        f"Starting server with {transport} transport on http://{host}:{port} "
+                        f"- endpoints: {endpoints}; auth: "
+                        f"{'bearer token' if self.mcp_config.auth_token else 'none'}"
                     )
                     uvicorn_server = uvicorn.Server(
                         uvicorn.Config(app, host=host, port=port, log_level="info")
                     )
                     await uvicorn_server.serve()
 
-                elif transport == "streamable-http":
-                    self.logger.info(f"Starting server with HTTP transport on {host}:{port}")
-                    # Create a proper MCP HTTP server
-                    from aiohttp import web
-                    
-                    async def handle_mcp_request(request):
-                        """Handle MCP requests via HTTP."""
-                        try:
-                            data = await request.json()
-                            method = data.get('method', '')
-                            request_id = data.get('id')
-                            
-                            self.logger.info(f"Received MCP request: {method}")
-                            
-                            # Handle different MCP methods
-                            if method == "initialize":
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "result": {
-                                        "protocolVersion": "2024-11-05",
-                                        "capabilities": {
-                                            "tools": {
-                                                "listChanged": True
-                                            },
-                                            "resources": {
-                                                "subscribe": True,
-                                                "listChanged": True
-                                            },
-                                            "prompts": {
-                                                "listChanged": True
-                                            },
-                                            "logging": {}
-                                        },
-                                        "serverInfo": {
-                                            "name": "withsecure-elements-mcp",
-                                            "version": "0.1.2"
-                                        }
-                                    }
-                                })
-                            
-                            elif method == "tools/list":
-                                # Collect all tools from modules
-                                tools = []
-                                for module in self.modules:
-                                    if hasattr(module, 'get_tools'):
-                                        tools.extend(module.get_tools())
-                                
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "result": {
-                                        "tools": tools
-                                    }
-                                })
-                            
-                            elif method == "tools/call":
-                                tool_name = data.get('params', {}).get('name', '')
-                                arguments = data.get('params', {}).get('arguments', {})
-                                
-                                # Find and call the tool
-                                for module in self.modules:
-                                    if hasattr(module, 'call_tool'):
-                                        result = await module.call_tool(tool_name, arguments)
-                                        if result is not None:
-                                            # Normalize to MCP CallToolResult shape
-                                            if isinstance(result, dict) and "content" in result:
-                                                call_result = result
-                                            else:
-                                                call_result = {
-                                                    "content": [
-                                                        c.model_dump()
-                                                        for c in self._to_text_content(result)
-                                                    ]
-                                                }
-                                            return web.json_response({
-                                                "jsonrpc": "2.0",
-                                                "id": request_id,
-                                                "result": call_result
-                                            })
-                                
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "error": {
-                                        "code": -32601,
-                                        "message": f"Tool '{tool_name}' not found"
-                                    }
-                                })
-                            
-                            elif method == "resources/list":
-                                # Collect all resources from modules
-                                resources = []
-                                for module in self.modules:
-                                    if hasattr(module, 'get_resources'):
-                                        resources.extend(module.get_resources())
-                                
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "result": {
-                                        "resources": resources
-                                    }
-                                })
-                            
-                            elif method == "notifications/initialized":
-                                # Acknowledge initialization
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "result": {}
-                                })
-                            
-                            else:
-                                return web.json_response({
-                                    "jsonrpc": "2.0",
-                                    "id": request_id,
-                                    "error": {
-                                        "code": -32601,
-                                        "message": f"Method '{method}' not found"
-                                    }
-                                })
-                                
-                        except Exception as e:
-                            self.logger.error(f"Error handling MCP request: {e}")
-                            return web.json_response({
-                                "jsonrpc": "2.0",
-                                "id": data.get("id") if 'data' in locals() else None,
-                                "error": {
-                                    "code": -32603,
-                                    "message": str(e)
-                                }
-                            }, status=500)
-                    
-                    # Create HTTP app
-                    app = web.Application()
-                    app.router.add_post("/", handle_mcp_request)
-                    app.router.add_get("/health", lambda r: web.json_response({"status": "ok"}))
-                    
-                    # Add CORS headers for n8n compatibility
-                    @web.middleware
-                    async def cors_handler(request, handler):
-                        response = await handler(request)
-                        response.headers['Access-Control-Allow-Origin'] = '*'
-                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-                        return response
-                    
-                    app.middlewares.append(cors_handler)
-                    
-                    # Handle OPTIONS requests for CORS
-                    async def options_handler(request):
-                        return web.Response(
-                            headers={
-                                'Access-Control-Allow-Origin': '*',
-                                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                            }
-                        )
-                    
-                    app.router.add_options("/", options_handler)
-                    
-                    # Start server
-                    runner = web.AppRunner(app)
-                    await runner.setup()
-                    site = web.TCPSite(runner, host, port)
-                    await site.start()
-                    
-                    self.logger.info(f"Server running on http://{host}:{port}")
-                    
-                    # Keep server running
-                    try:
-                        while True:
-                            await asyncio.sleep(1)
-                    except KeyboardInterrupt:
-                        pass
-                    finally:
-                        await runner.cleanup()
-                
                 else:
                     raise ValueError(f"Unsupported transport: {transport}")
         

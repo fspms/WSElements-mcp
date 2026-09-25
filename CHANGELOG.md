@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-25
+
+### Added
+- `list_incident_detections`: `fetch_all` to retrieve every detection of a BCD in one
+  call (bounded by `max_items`), created-time filters and `include_activity_context`.
+- `get_incident_updates` tool (`GET /incidents/v1/updates`).
+- `list_incidents`: `resolution`, `risk_level`, `source`, `order`, `updated_*`,
+  `exclusive_start` filters; multi-value filters accepted as arrays.
+- HTTP transport: `ping` and `resources/read` methods.
+- Optional HTTP access token: `MCP_AUTH_TOKEN` makes HTTP transports (streamable-http and
+  SSE) require `Authorization: Bearer <token>`; unset keeps the previous open behavior.
+- Optional official MCP SDK streamable-HTTP transport on `/mcp` with `MCP_HTTP_MODE=sdk`
+  (stateless); the legacy JSON-RPC endpoint on `/` is always kept.
+- Devices: `update_devices` (state/subscription/alias/importance/business context/labels)
+  and `delete_devices` — flagged destructive.
+- `get_response_action_tasks` (`GET /response-actions/v1/responses/tasks`) and
+  `get_software_update_installations` (`GET /software-updates/v1/installations`).
+- New `management` module: `list_audit_logs`, `list_invitations`, `create_invitation`,
+  `delete_invitations`, `renew_invitations` (write tools flagged destructive),
+  `list_profiles`, `list_exposure_identities`. Enabled by default; deployments that set
+  `WITHSECURE_MCP_MODULES` explicitly must add `management` to get it.
+
+### Changed
+- `create_response_action` now uses the non-deprecated
+  `POST /response-actions/v1/execute/{action}` endpoint with the real action catalog.
+- `get_incident` returns the incident object instead of a one-item list.
+- Breaking tool-schema changes (aligned with the API): `list_incidents` `status` is now
+  an array (`severity` kept as a deprecated alias of `risk_level`); `scan_device` no
+  longer takes `scan_type`; `list_devices` drops `status`/`last_seen_*` (use `state`);
+  `get_device_operations` drops `limit`/`anchor`; `isolate_device` `reason` is optional.
+- Removed the dead per-module MCP handler registrations (~40% less code).
+- The streamable-http transport now runs on Starlette/uvicorn (like SSE) instead of
+  aiohttp; same endpoints and responses. `aiohttp` is no longer a dependency.
+
+### Fixed
+- All modules checked against the official API reference: wrong parameter names
+  (e.g. `severity` → `riskLevel` for incidents, `deviceName` → `name` for devices),
+  invented enum values, and page sizes above the API maximum (400 errors).
+- Module errors are now reported with `isError: true` on every transport.
+- 5xx responses to non-idempotent requests (device operations, response actions) are
+  no longer retried, which could run an action twice; `Retry-After` is capped at 30s.
+- Missing `Content-Type` on POST device operations; per-target failures of a 207
+  multi-status response are surfaced as errors.
+- HTTP transport: notifications get `202` with no body; capabilities no longer
+  advertise unsupported features.
+
 ## [0.1.2] - 2026-06-19
 
 ### Added

@@ -4,14 +4,16 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 
 ## Features
 
-- **Incidents (BCDs)** : Access and manage Broad Context Detections (BCDs)
+- **Incidents (BCDs)** : Access and manage Broad Context Detections (BCDs), including all their detections and update history
 - **Security Events** : Retrieve and analyze security events
 - **Organizations** : Manage organization information
 - **Devices** : Monitor and perform actions on devices
 - **Response Actions** : Execute security response actions on devices
 - **Software Updates** : Install software updates and manage missing updates on devices
+- **Management** : Audit logs, device invitations, security profiles and identity exposure findings
 - **OAuth2 Authentication** : Secure integration with WithSecure Elements API (lazy, non-blocking startup)
 - **Safe by default** : `read_only` scope by default; destructive tools flagged with the MCP `destructiveHint`
+- **Secure HTTP (opt-in)** : optional bearer token (`MCP_AUTH_TOKEN`) and optional official MCP SDK streamable-HTTP endpoint (`MCP_HTTP_MODE=sdk`)
 - **Resilient & efficient** : automatic retry/backoff on `429`/`5xx` (honoring `Retry-After`), compact JSON responses, and cursor pagination via `anchor`
 
 ## Prerequisites
@@ -28,7 +30,7 @@ An MCP (Model Context Protocol) server to connect AI agents to WithSecure Elemen
 The easiest way to run the WithSecure Elements MCP Server is using Docker:
 
 ```bash
-# Pull the image (pin a version for reproducibility, e.g. :0.1.2)
+# Pull the image (pin a version for reproducibility, e.g. :0.2.0)
 docker pull ghcr.io/fspms/wselements-mcp:latest
 
 # Run with environment variables
@@ -62,7 +64,11 @@ services:
       - WITHSECURE_ORGANIZATION_ID=your_organization_id
       - MCP_DEBUG=false
       - MCP_LOG_LEVEL=INFO
-      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
+      - WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates,management
+      # Optional: require "Authorization: Bearer <token>" on HTTP requests
+      # - MCP_AUTH_TOKEN=change-me-long-random-string
+      # Optional: also serve the official MCP SDK streamable HTTP transport on /mcp
+      # - MCP_HTTP_MODE=sdk
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     healthcheck:
@@ -109,7 +115,11 @@ WITHSECURE_TIMEOUT=30
 # MCP Server Configuration
 MCP_DEBUG=false
 MCP_LOG_LEVEL=INFO
-WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
+WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates,management
+
+# HTTP transports only (both optional)
+# MCP_AUTH_TOKEN=change-me-long-random-string
+# MCP_HTTP_MODE=legacy
 ```
 
 | Variable | Description | Default |
@@ -119,7 +129,9 @@ WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,s
 | `WITHSECURE_API_SCOPE` | `read_only` or `read_write` | `read_only` |
 | `WITHSECURE_TIMEOUT` | HTTP request timeout (seconds) | `30` |
 | `WITHSECURE_BASE_URL` | API endpoint | production |
-| `WITHSECURE_MCP_MODULES` | Enabled modules (CSV) | all six |
+| `WITHSECURE_MCP_MODULES` | Enabled modules (CSV) | all seven |
+| `MCP_AUTH_TOKEN` | If set, HTTP transports require `Authorization: Bearer <token>` (`/health` stays public) | unset (no auth) |
+| `MCP_HTTP_MODE` | `legacy`: JSON-RPC on `/` only. `sdk`: also serves the official MCP SDK streamable-HTTP transport on `/mcp` (legacy `/` kept) | `legacy` |
 
 ### Available Environments
 
@@ -154,6 +166,7 @@ The server supports 6 main modules that can be enabled/disabled:
 - **`devices`** : Device monitoring and management
 - **`response_actions`** : Security response actions execution
 - **`software_updates`** : Software updates installation, management, and scanning
+- **`management`** : Audit logs, device invitations, security profiles and identity exposure
 
 ## Usage
 
@@ -201,7 +214,7 @@ withsecure-elements-mcp --modules incidents
 
 ```bash
 # Export environment variable
-export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates
+export WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates,management
 withsecure-elements-mcp
 ```
 
@@ -218,7 +231,7 @@ from withsecure_elements_mcp.server import WithSecureElementsMCPServer
 server = WithSecureElementsMCPServer(
     base_url="https://api.connect.withsecure.com",
     debug=True,
-    enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates"]
+    enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates", "management"]
 )
 
 # Run with stdio transport (default)
@@ -305,7 +318,7 @@ Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
         "-e",
         "MCP_LOG_LEVEL=INFO",
         "-e",
-        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates",
+        "WITHSECURE_MCP_MODULES=incidents,events,organizations,devices,response_actions,software_updates,management",
         "ghcr.io/fspms/wselements-mcp:latest",
         "--transport",
         "streamable-http",
@@ -331,6 +344,32 @@ Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
   }
 }
 ```
+
+Both HTTP options below are **opt-in** and can be combined; without them the server
+behaves exactly as before.
+
+- **Access token** — set `MCP_AUTH_TOKEN` on the server, then add the header on each client:
+
+  ```json
+  {
+    "mcpServers": {
+      "withsecure-elements-mcp": {
+        "url": "http://localhost:8000",
+        "transport": "http",
+        "headers": { "Authorization": "Bearer <MCP_AUTH_TOKEN>" }
+      }
+    }
+  }
+  ```
+
+  In n8n (MCP Client node), use *Bearer Auth* / a header credential with the same value.
+  `/health` and CORS preflight requests never require the token.
+
+- **Official MCP SDK transport** — set `MCP_HTTP_MODE=sdk` and point clients to
+  `http://<host>:8000/mcp` (spec-compliant streamable HTTP, stateless, SSE streaming).
+  The legacy endpoint on `/` keeps working, so existing clients can migrate at their own pace.
+  Behind a reverse proxy, disable response buffering for `/mcp` (e.g. nginx
+  `proxy_buffering off;`) and use a read timeout longer than your slowest tool call.
 
 #### Using uvx (for local development)
 
@@ -371,21 +410,27 @@ Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
 ## Available Modules
 
 ### Incidents (BCDs)
-- `list_incidents` — list incidents (filters: severity, status, time range, pagination)
+- `list_incidents` — list incidents (filters: status, resolution, risk level, source, archived,
+  created/updated time range, order; max 50 per page, `anchor` pagination)
 - `get_incident` — retrieve a specific incident
 - `update_incident_status` — update status (`resolution` required when closing)
-- `add_incident_comment` — add a comment to one or more incidents
-- `list_incident_detections` — list detections for an incident
+- `add_incident_comment` — add a comment to 1-10 incidents
+- `list_incident_detections` — list the detections of a given incident. Use `fetch_all: true`
+  to follow pagination and get **all** detections in one call (bounded by `max_items`, default
+  1000); `include_activity_context: false` returns a lighter overview
+- `get_incident_updates` — update history of an incident (status changes, comments, added
+  detections, risk changes, response actions…)
 
 ### Security Events
-- `list_events` — list security events (filter by engine, engine group, severity, device, time range)
-- `get_event` — retrieve event details
+- `list_events` — list security events (filter by engine, engine group, severity, device, time range;
+  the API caps a query at 30 days and defaults to the last 24h)
+- `get_event` — find an event by ID (the API has no direct lookup: scans up to the last 30 days)
 - `get_event_types` — list allowed engines/severities and other filter values
 - `get_event_statistics` — aggregated event statistics
 
 ### Organizations
 - `get_current_organization` — current authenticated organization (whoami)
-- `list_organizations` — list accessible organizations
+- `list_organizations` — list accessible organizations (companies or partners)
 - `get_organization` — retrieve a specific organization
 
 ### Devices
@@ -397,13 +442,18 @@ Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
 - `isolate_device` / `unisolate_device` / `scan_device` — network isolation and malware scan ⚠️
 - **`send_full_status`** — request complete status from devices (1-5 per operation)
 - **`restart_system`** — restart devices, Windows only, optional message (1-5 per operation) ⚠️
+- `update_devices` — change state (block/deactivate), subscription, alias, importance, business
+  context or labels of 1-5 devices ⚠️
+- `delete_devices` — delete 1-20 devices (frees seats; product must be reinstalled) ⚠️
 
 ### Response Actions
-- `list_response_actions_responses` — list response action responses
-- `create_response_action` — create a response action on devices. The action performed is
-  controlled by `action_type` and the WithSecure Elements API supports a wide catalog
-  (process/thread termination, memory dumps, file collection/deletion, network isolation,
-  registry/services operations, etc.) ⚠️
+- `list_response_actions_responses` — list response action responses (filter by type, state,
+  result, device)
+- `create_response_action` — run a response action on 1-10 devices via
+  `POST /response-actions/v1/execute/{action_type}` (process/thread termination, memory
+  dumps, artefact/file retrieval, registry/service/scheduled task/WMI clean-up, Entra ID
+  session/password actions…) ⚠️
+- `get_response_action_tasks` — per-device tasks of a response action (state, result, output files)
 
 > ⚠️ Tools marked above perform write/disruptive operations. They require
 > `WITHSECURE_API_SCOPE=read_write` and are flagged with the MCP `destructiveHint`,
@@ -421,6 +471,15 @@ Then ask Claude in natural language, e.g. *"List my WithSecure organizations"*,
 - **Scan for updates**: Trigger manual scan for software updates on devices
   - Force devices to check for available updates
   - Supports 1-5 devices per operation
+- `get_software_update_installations` — number of updates installed over the last 1-90 days,
+  with a daily breakdown by category and severity
+
+### Management
+- `list_audit_logs` — audit trail of actions in Elements (max 30-day range, filter by action/user)
+- `list_invitations` — device invitations (pending/expired)
+- `create_invitation` / `delete_invitations` / `renew_invitations` — manage device invitations ⚠️
+- `list_profiles` — security profiles by product type (IDs usable with `assign_profile`)
+- `list_exposure_identities` — Exposure Management findings on Entra ID identities
 
 ## Examples
 
@@ -440,7 +499,7 @@ async def main():
     # Create server with all modules enabled
     server = WithSecureElementsMCPServer(
         debug=True,
-        enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates"]
+        enabled_modules=["incidents", "events", "organizations", "devices", "response_actions", "software_updates", "management"]
     )
     
     # Run with stdio transport
@@ -491,7 +550,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - **API Credentials** : Store your WithSecure API credentials securely using environment variables or secret management systems
 - **Network Security** : Use HTTPS in production environments
-- **Access Control** : Limit access to the MCP server to authorized users only
+- **Access Control** : Limit access to the MCP server to authorized users only. When exposing an
+  HTTP transport beyond localhost (e.g. Docker `0.0.0.0`), set `MCP_AUTH_TOKEN` — otherwise anyone
+  reaching the port can call every tool with the configured API credentials
 - **Logging** : Monitor and audit all API calls and response actions
 - **Response Actions** : Use response actions carefully as they can affect system operations
 

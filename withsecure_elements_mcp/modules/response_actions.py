@@ -2,54 +2,98 @@
 MCP module for WithSecure Elements response actions management.
 """
 
-import json
 from typing import Any, Dict, List, Optional
-from mcp.types import Resource, Tool, TextContent
 from pydantic import BaseModel
 
 from .base import BaseModule
 
 
+# Actions exposed by POST /response-actions/v1/execute/{action} (also the
+# `type` filter enum of GET /response-actions/v1/responses).
+RESPONSE_ACTION_TYPES = [
+    "blockUserAccess",
+    "deleteRegistry",
+    "deleteScheduledTasks",
+    "deleteServices",
+    "deleteWmiPersistence",
+    "endCurrentSession",
+    "enumerateProcesses",
+    "enumerateScheduledTasks",
+    "enumerateWmiPersistence",
+    "fullMemoryDump",
+    "mapFileSystem",
+    "mapRegistry",
+    "netstat",
+    "processMemoryDump",
+    "resetPassword",
+    "retrieveAmcache",
+    "retrieveAntivirusLogs",
+    "retrieveBrowserArtefacts",
+    "retrieveEventLogFiles",
+    "retrieveEventLogTracing",
+    "retrieveFiles",
+    "retrieveJumpList",
+    "retrieveLogEntries",
+    "retrieveMbr",
+    "retrieveMft",
+    "retrievePrefetch",
+    "retrieveRdpCache",
+    "retrieveRecentlyAccessed",
+    "retrieveRegistryHives",
+    "retrieveSrumdb",
+    "terminateProcess",
+    "terminateThread",
+]
+
+RESPONSES_MAX_LIMIT = 100
+TASKS_MAX_LIMIT = 100
+TASK_STATES = [
+    "pending", "sent", "cancellationSent", "cancellationAcknowledged", "received",
+    "acknowledged", "running", "stopped", "finished", "canceling",
+]
+TASK_RESULTS = ["succeeded", "failed", "timeout", "canceled"]
+
+
 class ResponseActionFilters(BaseModel):
     """Filters for response actions search."""
-    
-    organization_id: str
+
+    organization_id: Optional[str] = None
     order: Optional[str] = "desc"
     anchor: Optional[str] = None
     limit: Optional[int] = 100
+    type: Optional[str] = None
+    action_id: Optional[str] = None
+    state: Optional[str] = None
+    result: Optional[str] = None
+    device_id: Optional[str] = None
 
 
 class ResponseActionCreate(BaseModel):
     """Model for creating response actions."""
-    
+
     targets: List[str]
-    organization_id: str
+    organization_id: Optional[str] = None
     action_type: str
+    comment: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
 
 
 class ResponseActionsModule(BaseModule):
     """Module for response actions management."""
-    
+
     @property
     def name(self) -> str:
         return "response_actions"
-    
+
     @property
     def description(self) -> str:
         return "WithSecure Elements response actions management"
-    
+
     def _register_resources(self) -> None:
         """Register resources for response actions."""
-        
+
         # Add resources to the list for HTTP transport
         self._resources.extend([
-            {
-                "uri": "withsecure://response-actions",
-                "name": "Response Actions",
-                "description": "WithSecure Elements response actions list",
-                "mimeType": "application/json"
-            },
             {
                 "uri": "withsecure://response-actions/responses",
                 "name": "Response Actions Responses",
@@ -57,76 +101,64 @@ class ResponseActionsModule(BaseModule):
                 "mimeType": "application/json"
             }
         ])
-        
-        @self.server.list_resources()
-        async def list_response_actions() -> List[Resource]:
-            """List available response action resources."""
-            return [
-                Resource(
-                    uri="withsecure://response-actions",
-                    name="Response Actions",
-                    description="WithSecure Elements response actions list",
-                    mimeType="application/json"
-                ),
-                Resource(
-                    uri="withsecure://response-actions/responses",
-                    name="Response Actions Responses",
-                    description="WithSecure Elements response actions responses",
-                    mimeType="application/json"
-                )
-            ]
-        
-        @self.server.read_resource()
-        async def read_response_action(uri: str) -> str:
-            """Read a response action resource."""
-            if uri == "withsecure://response-actions":
-                # Get response actions list
-                actions = await self._get_response_actions()
-                return actions
-            elif uri == "withsecure://response-actions/responses":
-                # Get response actions responses
-                responses = await self._get_response_actions_responses()
-                return responses
-            else:
-                raise ValueError(f"Unrecognized resource URI: {uri}")
-    
+
     def _register_tools(self) -> None:
         """Register tools for response actions."""
-        
+
         # Add tools to the list for HTTP transport
         self._tools.extend([
             {
                 "name": "list_response_actions_responses",
-                "description": "List created response actions on RDR sensors",
+                "description": "List response actions and their status (paginated via anchor/nextAnchor)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "organization_id": {
                             "type": "string",
-                            "description": "Organization ID"
+                            "description": "Organization UUID (defaults to configured org)"
                         },
                         "order": {
                             "type": "string",
                             "enum": ["asc", "desc"],
-                            "default": "desc",
-                            "description": "Sorting order"
+                            "default": "desc"
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of responses to return",
+                            "minimum": 1,
+                            "maximum": RESPONSES_MAX_LIMIT,
                             "default": 100
                         },
                         "anchor": {
                             "type": "string",
-                            "description": "Pagination anchor for next page"
+                            "description": "nextAnchor from previous page"
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": RESPONSE_ACTION_TYPES,
+                            "description": "Filter by action type"
+                        },
+                        "action_id": {
+                            "type": "string",
+                            "description": "Filter by action UUID"
+                        },
+                        "state": {
+                            "type": "string",
+                            "enum": ["created", "initializing", "sending", "running", "canceling", "finished"]
+                        },
+                        "result": {
+                            "type": "string",
+                            "enum": ["succeeded", "failed", "timeout", "cancelled"]
+                        },
+                        "device_id": {
+                            "type": "string",
+                            "description": "Filter by device UUID"
                         }
-                    },
-                    "required": ["organization_id"]
+                    }
                 }
             },
             {
                 "name": "create_response_action",
-                "description": "Create new response action on target devices",
+                "description": "Execute a response action on devices (or Entra tenants for identity actions). Returns the action id; track it with list_response_actions_responses",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -135,249 +167,159 @@ class ResponseActionsModule(BaseModule):
                             "items": {
                                 "type": "string"
                             },
-                            "description": "List of device IDs to target"
+                            "minItems": 1,
+                            "maxItems": 10,
+                            "description": "Device IDs (Entra tenant IDs for blockUserAccess/endCurrentSession/resetPassword)"
                         },
                         "organization_id": {
                             "type": "string",
-                            "description": "Organization ID"
+                            "description": "Organization UUID (defaults to configured org)"
                         },
                         "action_type": {
                             "type": "string",
-                            "enum": [
-                                "killThread",
-                                "killProcess", 
-                                "fullMemoryDump",
-                                "collectFile",
-                                "collectProcessMemory",
-                                "runCommand",
-                                "deleteFile",
-                                "quarantineFile",
-                                "unquarantineFile",
-                                "isolateFromNetwork",
-                                "releaseFromNetworkIsolation",
-                                "restartAgent",
-                                "shutdownDevice",
-                                "restartDevice"
-                            ],
-                            "description": "Type of response action to execute"
+                            "enum": RESPONSE_ACTION_TYPES,
+                            "description": "Response action to execute"
+                        },
+                        "comment": {
+                            "type": "string",
+                            "description": "Comment for the action"
                         },
                         "parameters": {
                             "type": "object",
-                            "description": "Action-specific parameters",
-                            "properties": {
-                                "threadId": {
-                                    "type": "string",
-                                    "description": "Thread ID (for killThread)"
-                                },
-                                "match": {
-                                    "type": "string",
-                                    "description": "Process match pattern (for killProcess)"
-                                },
-                                "processMatchValues": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "Process match values (for killProcess)"
-                                },
-                                "processMemoryDump": {
-                                    "type": "boolean",
-                                    "description": "Enable process memory dump (for killProcess)"
-                                },
-                                "memoryDumpFlag": {
-                                    "type": "string",
-                                    "description": "Memory dump flag (for killProcess)"
-                                },
-                                "winpmemVersion": {
-                                    "type": "string",
-                                    "description": "WinPmem version (for fullMemoryDump)"
-                                },
-                                "collectProfile": {
-                                    "type": "string",
-                                    "description": "Collect profile (for fullMemoryDump)"
-                                },
-                                "filePath": {
-                                    "type": "string",
-                                    "description": "File path (for collectFile, deleteFile, quarantineFile, unquarantineFile)"
-                                },
-                                "command": {
-                                    "type": "string",
-                                    "description": "Command to run (for runCommand)"
-                                },
-                                "message": {
-                                    "type": "string",
-                                    "description": "Message to display (for isolateFromNetwork)"
-                                }
-                            }
+                            "description": (
+                                "Action-specific parameters, e.g. terminateProcess {os:windows|mac|linux|mac_or_linux, "
+                                "match:processIds|processNames|processNameRegexes|processPaths|processPathRegexes, <match>:[...]}; "
+                                "terminateThread {threadId:int}; netstat {maxFileSizeToHashMB}; "
+                                "fullMemoryDump {winpmemVersion:v1_6|v2_1} (Windows) or {captureMemory,collectProfile} (Linux); "
+                                "processMemoryDump {match:processId|processName, processId|processName, flags:full|pmem}; "
+                                "retrieveFiles {match:pathBasic|pathRegex, pathBasic|pathRegex, pathStructure:all|sub|none, maxFiles}; "
+                                "retrieveMbr/retrieveMft {drive}; identity actions {userPrincipal}"
+                            )
                         }
                     },
-                    "required": ["targets", "organization_id", "action_type"]
+                    "required": ["targets", "action_type"]
+                }
+            },
+            {
+                "name": "get_response_action_tasks",
+                "description": "Per-device tasks of a response action: execution state, result and "
+                               "output files (attachments)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action_id": {"type": "string", "description": "Response action UUID"},
+                        "organization_id": {"type": "string", "description": "Organization UUID (defaults to configured org)"},
+                        "device_id": {"type": "string", "description": "Filter by device UUID"},
+                        "state": {"type": "string", "enum": TASK_STATES},
+                        "result": {"type": "string", "enum": TASK_RESULTS},
+                        "order": {"type": "string", "enum": ["asc", "desc"], "default": "desc"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": TASKS_MAX_LIMIT, "default": 10},
+                        "anchor": {"type": "string", "description": "nextAnchor from a previous response"}
+                    },
+                    "required": ["action_id"]
                 }
             }
         ])
-        
-        @self.server.list_tools()
-        async def list_response_action_tools() -> List[Tool]:
-            """List available tools for response actions."""
-            return [
-                Tool(
-                    name="list_response_actions_responses",
-                    description="List created response actions on RDR sensors",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID"
-                            },
-                            "order": {
-                                "type": "string",
-                                "enum": ["asc", "desc"],
-                                "default": "desc",
-                                "description": "Sorting order"
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Maximum number of responses to return",
-                                "default": 100
-                            },
-                            "anchor": {
-                                "type": "string",
-                                "description": "Pagination anchor for next page"
-                            }
-                        },
-                        "required": ["organization_id"]
-                    }
-                ),
-                Tool(
-                    name="create_response_action",
-                    description="Create new response action on target devices",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "targets": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of device IDs to target"
-                            },
-                            "organization_id": {
-                                "type": "string",
-                                "description": "Organization ID"
-                            },
-                            "action_type": {
-                                "type": "string",
-                                "enum": [
-                                    "killThread",
-                                    "killProcess", 
-                                    "fullMemoryDump",
-                                    "collectFile",
-                                    "collectProcessMemory",
-                                    "runCommand",
-                                    "deleteFile",
-                                    "quarantineFile",
-                                    "unquarantineFile",
-                                    "isolateFromNetwork",
-                                    "releaseFromNetworkIsolation",
-                                    "restartAgent",
-                                    "shutdownDevice",
-                                    "restartDevice"
-                                ],
-                                "description": "Type of response action to execute"
-                            },
-                            "parameters": {
-                                "type": "object",
-                                "description": "Action-specific parameters"
-                            }
-                        },
-                        "required": ["targets", "organization_id", "action_type"]
-                    }
-                )
-            ]
-        
-        @self.server.call_tool()
-        async def call_response_action_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            """Call a response action tool."""
-            if name == "list_response_actions_responses":
-                filters = ResponseActionFilters(**arguments)
-                responses = await self._get_response_actions_responses(filters)
-                return [TextContent(type="text", text=responses)]
-            
-            elif name == "create_response_action":
-                action_data = ResponseActionCreate(**arguments)
-                result = await self._create_response_action(action_data)
-                return [TextContent(type="text", text=result)]
-            
-            else:
-                raise ValueError(f"Unrecognized tool: {name}")
-    
+
     async def _get_response_actions_responses(self, filters: ResponseActionFilters) -> str:
         """Retrieve response actions responses list."""
-        import json
-        
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
+        organization_id = filters.organization_id or self.config.organization_id
+        if not organization_id:
+            raise ValueError("organization_id is required")
+
         headers = await self.auth.get_headers()
         params = {
-            "organizationId": filters.organization_id,
-            "order": filters.order,
-            "limit": filters.limit
+            "organizationId": organization_id,
+            "order": filters.order or "desc",
+            "limit": max(1, min(filters.limit or 100, RESPONSES_MAX_LIMIT))
         }
-        
-        if filters.anchor:
-            params["anchor"] = filters.anchor
-        
+
+        optional = {
+            "anchor": filters.anchor,
+            "type": filters.type,
+            "actionId": filters.action_id,
+            "state": filters.state,
+            "result": filters.result,
+            "deviceId": filters.device_id,
+        }
+        params.update({k: v for k, v in optional.items() if v})
+
         response = await self.auth._client.get(
             "/response-actions/v1/responses",
             headers=headers,
             params=params
         )
-        
+
         if response.status_code != 200:
             raise Exception(f"Error retrieving response actions responses: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-    
+
+        return self._dump(response.json())
+
     async def _create_response_action(self, action_data: ResponseActionCreate) -> str:
-        """Create a new response action."""
-        import json
-        
+        """Execute a response action via POST /response-actions/v1/execute/{action}."""
         if not self.auth._client:
             raise RuntimeError("HTTP client not initialized")
-        
+
+        if action_data.action_type not in RESPONSE_ACTION_TYPES:
+            raise ValueError(
+                f"Unsupported action_type '{action_data.action_type}'. Allowed: {', '.join(RESPONSE_ACTION_TYPES)}"
+            )
+        if not 1 <= len(action_data.targets) <= 10:
+            raise ValueError("targets must contain 1 to 10 items")
+
+        organization_id = action_data.organization_id or self.config.organization_id
+        if not organization_id:
+            raise ValueError("organization_id is required")
+
         headers = await self.auth.get_headers()
         headers["Content-Type"] = "application/json"
-        
+
         data = {
-            "targets": action_data.targets,
-            "organizationId": action_data.organization_id,
-            "actionType": action_data.action_type
+            "organizationId": organization_id,
+            "targets": action_data.targets
         }
-        
+
+        if action_data.comment:
+            data["comment"] = action_data.comment
         if action_data.parameters:
             data["parameters"] = action_data.parameters
-        
+
         response = await self.auth._client.post(
-            "/response-actions/v1/response-actions",
+            f"/response-actions/v1/execute/{action_data.action_type}",
             headers=headers,
             json=data
         )
-        
+
         if response.status_code not in [200, 201]:
             raise Exception(f"Error creating response action: {response.status_code} - {response.text}")
-        
-        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
-    
-    async def _get_response_actions(self) -> str:
-        """Retrieve response actions list (placeholder)."""
-        return json.dumps({"message": "Response actions list not implemented yet"}, indent=2)
+
+        return self._dump(response.json())
+
+    async def _get_response_action_tasks(self, arguments: Dict[str, Any]) -> str:
+        """Retrieve tasks of a response action (GET /response-actions/v1/responses/tasks)."""
+        organization_id = self._org_id(arguments.get("organization_id"))
+        if not organization_id:
+            raise ValueError("organization_id is required")
+        params = {
+            "organizationId": organization_id,
+            "actionId": arguments["action_id"],
+            "deviceId": arguments.get("device_id"),
+            "state": arguments.get("state"),
+            "result": arguments.get("result"),
+            "order": arguments.get("order"),
+            "limit": max(1, min(int(arguments.get("limit") or 10), TASKS_MAX_LIMIT)),
+            "anchor": arguments.get("anchor"),
+        }
+        data = await self._get_json("/response-actions/v1/responses/tasks", params, "response action tasks")
+        return self._dump(data)
 
     async def read_resource(self, uri: str) -> Optional[str]:
         """Read a response action resource."""
-        if uri == "withsecure://response-actions":
-            return await self._get_response_actions()
         if uri == "withsecure://response-actions/responses":
-            return await self._get_response_actions_responses(
-                ResponseActionFilters(organization_id=self.config.organization_id or "")
-            )
+            return await self._get_response_actions_responses(ResponseActionFilters())
         return None
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -394,7 +336,7 @@ class ResponseActionsModule(BaseModule):
                         }
                     ]
                 }
-            
+
             elif tool_name == "create_response_action":
                 action_data = ResponseActionCreate(**arguments)
                 result = await self._create_response_action(action_data)
@@ -406,10 +348,14 @@ class ResponseActionsModule(BaseModule):
                         }
                     ]
                 }
-            
+
+            elif tool_name == "get_response_action_tasks":
+                result = await self._get_response_action_tasks(arguments)
+                return {"content": [{"type": "text", "text": result}]}
+
             else:
                 return None
-                
+
         except Exception as e:
             return {
                 "content": [

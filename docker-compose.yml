@@ -14,6 +14,8 @@ services:
       - MCP_DEBUG=${MCP_DEBUG:-false}
       - MCP_LOG_LEVEL=${MCP_LOG_LEVEL:-INFO}
       - WITHSECURE_MCP_MODULES=${WITHSECURE_MCP_MODULES:-incidents,events,organizations,devices}
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      - MCP_HTTP_MODE=${MCP_HTTP_MODE:-legacy}
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     healthcheck:
